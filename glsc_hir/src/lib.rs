@@ -9,13 +9,20 @@ pub struct TranslationUnit {
 #[derive(Debug)]
 pub enum ExternalDeclaration {
     FunctionDefinition(FunctionDefinition),
-    Declaration(Ty, Identifier)
+    Declaration(Declaration)
+}
+#[derive(Debug, Clone)]
+pub struct Declaration {
+    pub ty: Ty,
+    pub name: Identifier,
+    pub init: Option<Expression>
 }
 #[derive(Debug)]
 pub struct FunctionDefinition {
     pub name: ast::Identifier,
     pub return_type: Ty,
     pub parameters: Vec<Parameter>,
+    pub body: Statement
 }
 
 #[derive(Debug, Clone)]
@@ -57,6 +64,35 @@ pub struct Ty {
 pub struct Parameter {
     pub ty: Ty,
     pub name: Option<ast::Identifier>,
+}
+#[derive(Debug, Clone)]
+pub enum ForInitializer {
+    Empty, 
+    Declaration(Declaration),
+    Expression(Expression),
+}
+#[derive(Debug, Clone)]
+pub enum Statement {
+    Compound(Vec<Self>),
+    Return(Option<Expression>),
+    Declaration(Declaration),
+    Expression(Option<Expression>),
+    If(Expression, Box<Statement>, Box<Option<Statement>>),
+    For(ForInitializer, Option<Expression>, Option<Expression>, Box<Statement>),
+    LabeledStatement(Label, Box<Self>)
+}
+#[derive(Debug, Clone)]
+pub enum Expression {
+    Identifier(Identifier),
+    BinOp(Box<Self>, ast::BinaryOperator, Box<Self>),
+    UnaryOp(ast::UnaryOperator, Box<Self>),
+    Constant(ast::Constant)
+}
+#[derive(Debug, Clone)]
+pub enum Label {
+    Idenitfier(Identifier),
+    Case(Expression),
+    Default
 }
 impl Ty {
     pub fn new(data_type: DataType) -> Self {
