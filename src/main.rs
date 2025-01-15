@@ -32,5 +32,9 @@ fn main() {
     let input = include_str!("./c/test.c");
     let parse = lang_c::driver::parse(&Config::with_clang(), "./src/c/test.c").unwrap();
     dbg!(&parse.unit);
-    glsc_hir_lower::HirLower{}.lower_translation_unit(&parse.unit);
+    let hir = glsc_hir_lower::HirLower{}.lower_translation_unit(&parse.unit).unwrap();
+    let mut mir_lower = glsc_mir_lower::MirLower::new();
+    mir_lower.lower_translation_unit(&hir);
+    dbg!(&mir_lower);
+
 }

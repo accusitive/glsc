@@ -79,7 +79,8 @@ pub enum Statement {
     Expression(Option<Expression>),
     If(Expression, Box<Statement>, Box<Option<Statement>>),
     For(ForInitializer, Option<Expression>, Option<Expression>, Box<Statement>),
-    LabeledStatement(Label, Box<Self>)
+    LabeledStatement(Label, Box<Self>),
+    Goto(ast::Identifier)
 }
 #[derive(Debug, Clone)]
 pub enum Expression {
@@ -203,7 +204,12 @@ impl Ty {
             _ => false,
         }
     }
-
+    pub fn is_typedef(&self) -> bool {
+        match self.storage_class {
+            Some(StorageClassSpecifier::Typedef) => true,
+            _ => false
+        }
+    }
     pub fn function_return_type(&self) -> Ty {
         match &self.data_type {
             DataType::Function {

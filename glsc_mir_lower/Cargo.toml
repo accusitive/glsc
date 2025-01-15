@@ -1,0 +1,9 @@
+[package]
+name = "glsc_mir_lower"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+glsc_hir = {path = "../glsc_hir"}
+glsc_mir = {path = "../glsc_mir"}
+lang-c = "0.15.1"

@@ -17,7 +17,9 @@ impl HirLower {
         }
 
         dbg!(&external_declarations);
-        None
+        Some(hir::TranslationUnit{
+            declarations: external_declarations.into_iter().flatten().collect::<Vec<_>>()
+        })
     }
     pub fn lower_external_declaration(
         &mut self,
@@ -72,6 +74,7 @@ impl HirLower {
         &mut self,
         function_definition: &ast::FunctionDefinition,
     ) -> hir::FunctionDefinition {
+        assert!(function_definition.declarations.len() == 0, "no support for k&r style functions");
         let name = self
             .get_declarator_identifier(&function_definition.declarator.node)
             .expect("Function definition name is not an identifier");
@@ -285,8 +288,9 @@ impl HirLower {
 
                     ty.function(parameters);
                 }
-
-                _ => {}
+                ast::DerivedDeclarator::KRFunction(vec) => panic!("K&R functions not supported"),
+                _ => unimplemented!()
+                
             };
         }
         ty
@@ -361,7 +365,7 @@ impl HirLower {
                 let stmt = self.lower_statement(&for_statement.node.statement.node);
                 hir::Statement::For(for_initializer, condition, step, Box::new(stmt))
             },
-            ast::Statement::Goto(node) => todo!(),
+            ast::Statement::Goto(node) => hir::Statement::Goto(node.node.clone()),
             ast::Statement::Continue => todo!(),
             ast::Statement::Break => todo!(),
             ast::Statement::Return(expression) => {

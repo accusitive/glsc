@@ -7,3 +7,6 @@ edition = "2021"
 lang-c = "0.15.1"
 glsc_hir = {path = "./glsc_hir"}
 glsc_hir_lower = {path = "./glsc_hir_lower"}
+
+glsc_mir = {path = "./glsc_mir"}
+glsc_mir_lower = {path = "./glsc_mir_lower"}

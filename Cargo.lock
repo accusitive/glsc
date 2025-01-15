@@ -8,6 +8,8 @@ version = "0.1.0"
 dependencies = [
  "glsc_hir",
  "glsc_hir_lower",
+ "glsc_mir",
+ "glsc_mir_lower",
  "lang-c",
 ]
 
@@ -23,6 +25,23 @@ name = "glsc_hir_lower"
 version = "0.1.0"
 dependencies = [
  "glsc_hir",
+ "lang-c",
+]
+
+[[package]]
+name = "glsc_mir"
+version = "0.1.0"
+dependencies = [
+ "glsc_hir",
+ "lang-c",
+]
+
+[[package]]
+name = "glsc_mir_lower"
+version = "0.1.0"
+dependencies = [
+ "glsc_hir",
+ "glsc_mir",
  "lang-c",
 ]
 
