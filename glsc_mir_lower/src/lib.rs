@@ -52,15 +52,15 @@ impl MirLower {
     }
     pub fn lower_external_declaration(&mut self, external_declaration: &hir::ExternalDeclaration) {
         match external_declaration {
-            glsc_hir::ExternalDeclaration::FunctionDefinition(function_definition) => {
+            hir::ExternalDeclaration::FunctionDefinition(function_definition) => {
                 self.lower_function_definition(function_definition)
             }
-            glsc_hir::ExternalDeclaration::Declaration(declaration) => {
-                self.lower_declaration(declaration)
+            hir::ExternalDeclaration::Declaration(declaration) => {
+                self.declare_in_current_scope(declaration)
             }
         }
     }
-    pub fn lower_declaration(&mut self, declaration: &hir::Declaration) {
+    pub fn declare_in_current_scope(&mut self, declaration: &hir::Declaration) {
         if declaration.ty.is_typedef() {
             assert!(declaration.init.is_none());
             let mir_ty = self.lower_ty(&declaration.ty.clone());
@@ -105,26 +105,29 @@ impl MirLower {
         let body = self
             .lower_statement(&function_definition.body)
             .expect("Function definition with empty body?");
-        self.get_current_scope().functions.push(mir::Function {
+        let f = mir::Function {
             return_type,
             name,
             parameters,
             body,
-        });
+        };
+
+        mir::DebugPrinter::print(&f, 0);;
+        self.get_current_scope().functions.push(f);
     }
     pub fn lower_ty(&mut self, ty: &hir::Ty) -> mir::Ty {
         match &ty.data_type {
-            glsc_hir::DataType::None => mir::Ty::None,
-            glsc_hir::DataType::Void => mir::Ty::Void,
-            glsc_hir::DataType::Short => mir::Ty::Short,
-            glsc_hir::DataType::Int => mir::Ty::Int,
-            glsc_hir::DataType::Float => mir::Ty::Float,
-            glsc_hir::DataType::Double => mir::Ty::Double,
-            glsc_hir::DataType::TS18661Float(ts18661_float_type) => todo!(),
-            glsc_hir::DataType::Char => mir::Ty::Char,
-            glsc_hir::DataType::Long => mir::Ty::Long,
-            glsc_hir::DataType::LongLong => mir::Ty::LongLong,
-            glsc_hir::DataType::TypedefName(identifier) => {
+            hir::DataType::None => mir::Ty::None,
+            hir::DataType::Void => mir::Ty::Void,
+            hir::DataType::Short => mir::Ty::Short,
+            hir::DataType::Int => mir::Ty::Int,
+            hir::DataType::Float => mir::Ty::Float,
+            hir::DataType::Double => mir::Ty::Double,
+            hir::DataType::TS18661Float(ts18661_float_type) => todo!(),
+            hir::DataType::Char => mir::Ty::Char,
+            hir::DataType::Long => mir::Ty::Long,
+            hir::DataType::LongLong => mir::Ty::LongLong,
+            hir::DataType::TypedefName(identifier) => {
                 let identifier = identifier.into();
                 self.get_current_scope()
                     .typedefs
@@ -132,18 +135,18 @@ impl MirLower {
                     .expect("Failed to find typedef")
                     .clone()
             }
-            glsc_hir::DataType::Pointer(ty) => mir::Ty::Pointer(Box::new(self.lower_ty(ty))),
-            glsc_hir::DataType::Function {
+            hir::DataType::Pointer(ty) => mir::Ty::Pointer(Box::new(self.lower_ty(ty))),
+            hir::DataType::Function {
                 return_type,
                 parameters,
             } => todo!(),
             // TODO: add padding to each field
-            glsc_hir::DataType::Struct { name, fields } => todo!(),
+            hir::DataType::Struct { name, fields } => todo!(),
         }
     }
     pub fn lower_statement(&mut self, statement: &hir::Statement) -> Option<mir::Statement> {
         match statement {
-            glsc_hir::Statement::Compound(statements) => {
+            hir::Statement::Compound(statements) => {
                 self.push_scope();
                 let lowered_statements = mir::Statement::Compound(
                     statements
@@ -156,20 +159,21 @@ impl MirLower {
                 self.pop_scope();
                 Some(lowered_statements)
             }
-            glsc_hir::Statement::Return(expression) => Some(mir::Statement::Return(
+            hir::Statement::Return(expression) => Some(mir::Statement::Return(
                 expression
                     .as_ref()
                     .map(|expression| self.lower_expression(expression)),
             )),
-            glsc_hir::Statement::Declaration(declaration) => {
-                self.lower_declaration(&declaration);
-                None
+            hir::Statement::Declaration(declaration) => {
+                // self.lower_declaration(&declaration);
+                Some(glsc_mir::Statement::Declaration(self.lower_declaration2(declaration)))
+                
             }
-            glsc_hir::Statement::Expression(None) => None,
-            glsc_hir::Statement::Expression(Some(expression)) => Some(mir::Statement::Expression(
+            hir::Statement::Expression(None) => None,
+            hir::Statement::Expression(Some(expression)) => Some(mir::Statement::Expression(
                 Some(self.lower_expression(expression)),
             )),
-            glsc_hir::Statement::If(expression, statement, statement1) => Some(mir::Statement::If(
+            hir::Statement::If(expression, statement, statement1) => Some(mir::Statement::If(
                 self.lower_expression(expression),
                 Box::new(self.lower_statement(statement).unwrap()),
                 Box::new(
@@ -178,14 +182,14 @@ impl MirLower {
                         .map(|stmt| self.lower_statement(&stmt).unwrap()),
                 ),
             )),
-            glsc_hir::Statement::For(for_initializer, condition, update, body) => {
+            hir::Statement::For(for_initializer, condition, update, body) => {
                 let mut stmts = vec![];
                 let init = match for_initializer {
-                    glsc_hir::ForInitializer::Empty => mir::Statement::Empty,
-                    glsc_hir::ForInitializer::Declaration(declaration) => {
+                    hir::ForInitializer::Empty => mir::Statement::Empty,
+                    hir::ForInitializer::Declaration(declaration) => {
                         mir::Statement::Declaration(self.lower_declaration2(declaration))
                     }
-                    glsc_hir::ForInitializer::Expression(expression) => {
+                    hir::ForInitializer::Expression(expression) => {
                         mir::Statement::Expression(Some(self.lower_expression(expression)))
                     }
                 };
@@ -206,7 +210,7 @@ impl MirLower {
                 );
 
                 stmts.push(mir::Statement::LabeledStatement(
-                    glsc_mir::Label::Internal(self.next_internal_label()),
+                    glsc_mir::Label::Internal(loop_start),
                     Box::new(asdasdasd),
                 ));
                 // Empty label technically contains everything after it
@@ -214,8 +218,8 @@ impl MirLower {
 
                 Some(mir::Statement::Compound(stmts))
             }
-            glsc_hir::Statement::LabeledStatement(label, statement) => todo!(),
-            glsc_hir::Statement::Goto(identifier) => {
+            hir::Statement::LabeledStatement(label, statement) => todo!(),
+            hir::Statement::Goto(identifier) => {
                 Some(glsc_mir::Statement::GotoLabel(identifier.into()))
             }
         }
@@ -227,16 +231,16 @@ impl MirLower {
     }
     pub fn lower_expression(&mut self, expression: &hir::Expression) -> mir::Expression {
         match expression {
-            glsc_hir::Expression::Identifier(identifier) => {
+            hir::Expression::Identifier(identifier) => {
                 mir::Expression::Identifier(identifier.into())
             }
-            glsc_hir::Expression::BinOp(lhs, binary_operator, rhs) => mir::Expression::BinOp(
+            hir::Expression::BinOp(lhs, binary_operator, rhs) => mir::Expression::BinOp(
                 Box::new(self.lower_expression(&lhs)),
                 binary_operator.clone(),
                 Box::new(self.lower_expression(&rhs)),
             ),
-            glsc_hir::Expression::UnaryOp(unary_operator, expression) => mir::Expression::UnaryOp(unary_operator.clone(), Box::new(self.lower_expression(&expression))),
-            glsc_hir::Expression::Constant(constant) => mir::Expression::Constant(constant.clone()),
+            hir::Expression::UnaryOp(unary_operator, expression) => mir::Expression::UnaryOp(unary_operator.clone(), Box::new(self.lower_expression(&expression))),
+            hir::Expression::Constant(constant) => mir::Expression::Constant(constant.clone()),
         }
     }
 }
