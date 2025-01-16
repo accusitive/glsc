@@ -4,11 +4,8 @@ use lang_c::driver::Config;
 // thanks chatgpt (i wrote the rest though)
 pub fn preprocess_file(file_path: &str, clang_path: &str) -> std::io::Result<String> {
     // Run Clang with the -E flag to preprocess the file
-    let output: Output = Command::new(clang_path)
-        .arg("-E")
-        .arg(file_path)
-        .output()?;
-    
+    let output: Output = Command::new(clang_path).arg("-E").arg(file_path).output()?;
+
     // Check if Clang succeeded
     if !output.status.success() {
         return Err(std::io::Error::new(
@@ -32,9 +29,10 @@ fn main() {
     let input = include_str!("./c/test.c");
     let parse = lang_c::driver::parse(&Config::with_clang(), "./src/c/test.c").unwrap();
     dbg!(&parse.unit);
-    let hir = glsc_hir_lower::HirLower{}.lower_translation_unit(&parse.unit).unwrap();
+    let hir = glsc_hir_lower::HirLower {}
+        .lower_translation_unit(&parse.unit)
+        .unwrap();
     let mut mir_lower = glsc_mir_lower::MirLower::new();
     mir_lower.lower_translation_unit(&hir);
     dbg!(&mir_lower);
-
 }

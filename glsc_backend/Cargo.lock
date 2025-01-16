@@ -201,18 +201,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "glsc"
-version = "0.1.0"
-dependencies = [
- "glsc_backend",
- "glsc_hir",
- "glsc_hir_lower",
- "glsc_mir",
- "glsc_mir_lower",
- "lang-c",
-]
-
-[[package]]
 name = "glsc_backend"
 version = "0.1.0"
 dependencies = [
@@ -221,39 +209,6 @@ dependencies = [
  "cranelift-frontend",
  "cranelift-module",
  "cranelift-object",
- "target-lexicon",
-]
-
-[[package]]
-name = "glsc_hir"
-version = "0.1.0"
-dependencies = [
- "lang-c",
-]
-
-[[package]]
-name = "glsc_hir_lower"
-version = "0.1.0"
-dependencies = [
- "glsc_hir",
- "lang-c",
-]
-
-[[package]]
-name = "glsc_mir"
-version = "0.1.0"
-dependencies = [
- "glsc_hir",
- "lang-c",
-]
-
-[[package]]
-name = "glsc_mir_lower"
-version = "0.1.0"
-dependencies = [
- "glsc_hir",
- "glsc_mir",
- "lang-c",
 ]
 
 [[package]]
@@ -280,12 +235,6 @@ dependencies = [
  "equivalent",
  "hashbrown 0.15.2",
 ]
-
-[[package]]
-name = "lang-c"
-version = "0.15.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "720e6492b795d1f6838eb2e51879ec3073be745a20e52c32a241b80b3c8ed998"
 
 [[package]]
 name = "log"

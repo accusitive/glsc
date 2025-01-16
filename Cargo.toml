@@ -10,3 +10,5 @@ glsc_hir_lower = {path = "./glsc_hir_lower"}
 
 glsc_mir = {path = "./glsc_mir"}
 glsc_mir_lower = {path = "./glsc_mir_lower"}
+
+glsc_backend = {path = "./glsc_backend"}

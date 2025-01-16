@@ -154,7 +154,7 @@ impl Ty {
         Some(())
     }
     pub fn function(&mut self, params: Vec<Parameter>) -> Option<()> {
-        // self.data_type = DataType::Pointer(Box::new(self.clone()));
+        dbg!(&self, "setting self to function");
         self.data_type = DataType::Function {
             return_type: Box::new(self.clone()),
             parameters: params,
@@ -201,6 +201,12 @@ impl Ty {
     pub fn is_long(&self) -> bool {
         match self.data_type {
             DataType::Long => true,
+            _ => false,
+        }
+    }
+    pub fn is_function(&self) -> bool {
+        match self.data_type {
+            DataType::Function { ..} => true,
             _ => false,
         }
     }

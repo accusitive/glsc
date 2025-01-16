@@ -17,8 +17,11 @@ impl HirLower {
         }
 
         dbg!(&external_declarations);
-        Some(hir::TranslationUnit{
-            declarations: external_declarations.into_iter().flatten().collect::<Vec<_>>()
+        Some(hir::TranslationUnit {
+            declarations: external_declarations
+                .into_iter()
+                .flatten()
+                .collect::<Vec<_>>(),
         })
     }
     pub fn lower_external_declaration(
@@ -35,6 +38,16 @@ impl HirLower {
             _ => unimplemented!(),
         }
     }
+
+    pub fn collect_all_derived_declarators(&mut self, declarator: &ast::Declarator) -> Vec<Node<ast::DerivedDeclarator>>{
+        let mut d = declarator.derived.clone();
+        match &declarator.kind.node {
+            ast::DeclaratorKind::Declarator(node) => d.extend(self.collect_all_derived_declarators(&node.node)),
+            _ => ()
+        }
+
+        d
+    }
     pub fn lower_declaration(
         &mut self,
         declaration: &ast::Declaration,
@@ -48,25 +61,44 @@ impl HirLower {
             let declarator_name = self
                 .get_declarator_identifier(&init_declarator.node.declarator.node)
                 .unwrap();
-            let declarator_ty = self.parse_derived_declarators(
-                &declaration_type,
-                &init_declarator.node.declarator.node.derived,
-            );
+            dbg!(&init_declarator.node.declarator.node.derived);
+            // let mut declarator_ty = self.parse_derived_declarators(
+            //     &declaration_type,
+            //     &init_declarator.node.declarator.node.derived,
+            // );
+
+
+
+            let declarator_derived_declarated = self.collect_all_derived_declarators(&init_declarator.node.declarator.node);
+            let declarator_ty = self.parse_derived_declarators(&declaration_type, &declarator_derived_declarated);
+            // If the name of the declarator is a declarator itself, it can contain more stars and array stuff
+            // if let ast::DeclaratorKind::Declarator(node) =
+            //     &init_declarator.node.declarator.node.kind.node
+            // {
+            //     declarator_ty = self.parse_derived_declarators(&declarator_ty, &node.node.derived);
+            //     if let ast::DeclaratorKind::Declarator(node) = &node.node.kind.node {
+            //         panic!("no support for function pointer to function pointer")
+            //     }
+            // }
 
             let mut init = None;
             match &init_declarator.node.initializer {
-                Some(Node { node: Initializer::Expression(e), span: _ }) => {
+                Some(Node {
+                    node: Initializer::Expression(e),
+                    span: _,
+                }) => {
                     init = Some(self.lower_expression(&e.node));
-                },
+                }
                 _ => {}
             }
 
-            external_declarations.push(glsc_hir::ExternalDeclaration::Declaration(hir::Declaration{
-                ty: declarator_ty,
-                name: declarator_name,
-                init,
-        }));
-            // dbg!(&declarator_ty, &declarator_name, init_declarator);
+            external_declarations.push(glsc_hir::ExternalDeclaration::Declaration(
+                hir::Declaration {
+                    ty: declarator_ty,
+                    name: declarator_name,
+                    init,
+                },
+            ));
         }
         external_declarations
     }
@@ -74,29 +106,36 @@ impl HirLower {
         &mut self,
         function_definition: &ast::FunctionDefinition,
     ) -> hir::FunctionDefinition {
-        assert!(function_definition.declarations.len() == 0, "no support for k&r style functions");
+        assert!(
+            function_definition.declarations.len() == 0,
+            "no support for k&r style functions"
+        );
         let name = self
             .get_declarator_identifier(&function_definition.declarator.node)
             .expect("Function definition name is not an identifier");
 
-        let mut declaration_specifiers = self
+        let mut function_type = self
             .parse_declaration_specifiers(&function_definition.specifiers)
             .expect("Failed to parse function type specifiers");
 
         // Not sure if this is correct. If the function declarator isnt an identifier, I parse the derived declarators onto the current type.
-        if let ast::DeclaratorKind::Declarator(node) =
-            &function_definition.declarator.node.kind.node
-        {
-            declaration_specifiers =
-                self.parse_derived_declarators(&declaration_specifiers, &node.node.derived);
-            if let ast::DeclaratorKind::Declarator(node) = &node.node.kind.node {
-                panic!("no support for function pointer to function pointer")
-            }
-        }
-        let function_type = self.parse_derived_declarators(
-            &declaration_specifiers,
-            &function_definition.declarator.node.derived,
-        );
+        // if let ast::DeclaratorKind::Declarator(node) =
+        //     &function_definition.declarator.node.kind.node
+        // {
+        //     declaration_specifiers =
+        //         self.parse_derived_declarators(&declaration_specifiers, &node.node.derived);
+        //     if let ast::DeclaratorKind::Declarator(node) = &node.node.kind.node {
+        //         panic!("no support for function pointer to function pointer")
+        //     }
+        // }
+        let declarator_derived_declarated = self.collect_all_derived_declarators(&function_definition.declarator.node);
+        function_type = self.parse_derived_declarators(&function_type, &declarator_derived_declarated);
+            
+
+        // let function_type = self.parse_derived_declarators(
+        //     &declaration_specifiers,
+        //     &function_definition.declarator.node.derived,
+        // );
 
         let body = self.lower_statement(&function_definition.statement.node);
         // dbg!(&function_type);
@@ -105,7 +144,7 @@ impl HirLower {
             name,
             return_type: function_type.function_return_type(),
             parameters: function_type.function_parameters(),
-            body
+            body,
         }
     }
     pub fn get_declarator_identifier(
@@ -289,14 +328,13 @@ impl HirLower {
                     ty.function(parameters);
                 }
                 ast::DerivedDeclarator::KRFunction(vec) => panic!("K&R functions not supported"),
-                _ => unimplemented!()
-                
+                _ => unimplemented!("derived declarator {:?} is not implemented", derived_declarator.node),
             };
         }
         ty
     }
 
-    pub fn lower_statement(&mut self, statement: &ast::Statement) -> hir::Statement{
+    pub fn lower_statement(&mut self, statement: &ast::Statement) -> hir::Statement {
         match statement {
             ast::Statement::Labeled(labeled_statement) => {
                 let label = match &labeled_statement.node.label.node {
@@ -307,19 +345,24 @@ impl HirLower {
                     ast::Label::CaseRange(_) => unimplemented!("Unsupported extension"),
                 };
 
-                hir::Statement::LabeledStatement(label, Box::new(self.lower_statement(&labeled_statement.node.statement.node)))
-            },
+                hir::Statement::LabeledStatement(
+                    label,
+                    Box::new(self.lower_statement(&labeled_statement.node.statement.node)),
+                )
+            }
             ast::Statement::Compound(block_items) => {
                 let mut statements = vec![];
                 for block_item in block_items {
                     match &block_item.node {
                         ast::BlockItem::Declaration(declaration) => {
                             for external_declaration in self.lower_declaration(&declaration.node) {
-                                if let ExternalDeclaration::Declaration(declaration) = external_declaration {
+                                if let ExternalDeclaration::Declaration(declaration) =
+                                    external_declaration
+                                {
                                     statements.push(glsc_hir::Statement::Declaration(declaration));
                                 }
                             }
-                        },
+                        }
                         ast::BlockItem::StaticAssert(node) => todo!(),
                         ast::BlockItem::Statement(statement) => {
                             statements.push(self.lower_statement(&statement.node))
@@ -334,37 +377,51 @@ impl HirLower {
                 } else {
                     hir::Statement::Expression(None)
                 }
-            },
+            }
             ast::Statement::If(if_statement) => {
                 let condition = self.lower_expression(&if_statement.node.condition.node);
                 let then = self.lower_statement(&if_statement.node.then_statement.node);
-                let elze = if_statement.node.else_statement.as_ref().map(|stmt| self.lower_statement(&stmt.node));
+                let elze = if_statement
+                    .node
+                    .else_statement
+                    .as_ref()
+                    .map(|stmt| self.lower_statement(&stmt.node));
                 hir::Statement::If(condition, Box::new(then), Box::new(elze))
-            },
+            }
             ast::Statement::Switch(node) => todo!(),
             ast::Statement::While(node) => todo!(),
             ast::Statement::DoWhile(node) => todo!(),
             ast::Statement::For(for_statement) => {
                 let for_initializer = match &for_statement.node.initializer.node {
                     ast::ForInitializer::Empty => hir::ForInitializer::Empty,
-                    ast::ForInitializer::Expression(node) => hir::ForInitializer::Expression(self.lower_expression(&node.node)),
+                    ast::ForInitializer::Expression(node) => {
+                        hir::ForInitializer::Expression(self.lower_expression(&node.node))
+                    }
                     ast::ForInitializer::Declaration(node) => {
-                         let d = self.lower_declaration(&node.node); 
-                        assert!(d.len() == 1); 
+                        let d = self.lower_declaration(&node.node);
+                        assert!(d.len() == 1);
                         if let ExternalDeclaration::Declaration(d) = &d[0] {
                             hir::ForInitializer::Declaration(d.clone())
                         } else {
                             panic!("i dont even know.")
                         }
-                    },
+                    }
                     ast::ForInitializer::StaticAssert(node) => unimplemented!(),
                 };
-                let condition = for_statement.node.condition.as_ref().map(|expr| self.lower_expression(&expr.node));
-                let step = for_statement.node.step.as_ref().map(|expr| self.lower_expression(&expr.node));
+                let condition = for_statement
+                    .node
+                    .condition
+                    .as_ref()
+                    .map(|expr| self.lower_expression(&expr.node));
+                let step = for_statement
+                    .node
+                    .step
+                    .as_ref()
+                    .map(|expr| self.lower_expression(&expr.node));
 
                 let stmt = self.lower_statement(&for_statement.node.statement.node);
                 hir::Statement::For(for_initializer, condition, step, Box::new(stmt))
-            },
+            }
             ast::Statement::Goto(node) => hir::Statement::Goto(node.node.clone()),
             ast::Statement::Continue => todo!(),
             ast::Statement::Break => todo!(),
@@ -374,13 +431,15 @@ impl HirLower {
                 } else {
                     hir::Statement::Return(None)
                 }
-            },
+            }
             ast::Statement::Asm(node) => todo!(),
         }
     }
     pub fn lower_expression(&mut self, expression: &ast::Expression) -> hir::Expression {
         match expression {
-            ast::Expression::Identifier(identifier) => hir::Expression::Identifier(identifier.node.clone()),
+            ast::Expression::Identifier(identifier) => {
+                hir::Expression::Identifier(identifier.node.clone())
+            }
             ast::Expression::Constant(constant) => hir::Expression::Constant(constant.node.clone()),
             ast::Expression::StringLiteral(node) => todo!(),
             ast::Expression::GenericSelection(node) => todo!(),
@@ -392,18 +451,21 @@ impl HirLower {
             ast::Expression::AlignOf(node) => todo!(),
             ast::Expression::UnaryOperator(node) => {
                 let operand = self.lower_expression(&node.node.operand.node);
-                let operator =  node.node.operator.node.clone();
+                let operator = node.node.operator.node.clone();
 
                 hir::Expression::UnaryOp(operator, Box::new(operand))
-
-            },
+            }
             ast::Expression::Cast(node) => todo!(),
             ast::Expression::BinaryOperator(expression) => {
                 let lhs = self.lower_expression(&expression.node.lhs.node);
                 let rhs = self.lower_expression(&expression.node.rhs.node);
 
-                hir::Expression::BinOp(Box::new(lhs), expression.node.operator.node.clone(), Box::new(rhs))
-            },
+                hir::Expression::BinOp(
+                    Box::new(lhs),
+                    expression.node.operator.node.clone(),
+                    Box::new(rhs),
+                )
+            }
             ast::Expression::Conditional(node) => todo!(),
             ast::Expression::Comma(vec) => todo!(),
             ast::Expression::OffsetOf(node) => todo!(),
@@ -411,4 +473,4 @@ impl HirLower {
             ast::Expression::Statement(node) => todo!(),
         }
     }
- }
+}

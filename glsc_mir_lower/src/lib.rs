@@ -1,6 +1,6 @@
 use glsc_hir::{self as hir};
 use glsc_mir::{self as mir};
-
+use lang_c::ast as ast;
 use std::collections::HashMap;
 
 #[derive(Debug)]
@@ -8,6 +8,7 @@ pub struct Scope {
     pub typedefs: HashMap<mir::Identifier, mir::Ty>,
     pub functions: Vec<mir::Function>,
     pub variables: HashMap<mir::Identifier, (mir::Ty, Option<mir::Expression>)>,
+    pub external_declaration: HashMap<mir::Identifier, mir::Declaration>
 }
 
 impl Scope {
@@ -16,6 +17,7 @@ impl Scope {
             typedefs: HashMap::new(),
             functions: Vec::new(),
             variables: HashMap::new(),
+            external_declaration: HashMap::new()
         }
     }
 }
@@ -61,24 +63,45 @@ impl MirLower {
         }
     }
     pub fn declare_in_current_scope(&mut self, declaration: &hir::Declaration) {
-        if declaration.ty.is_typedef() {
-            assert!(declaration.init.is_none());
-            let mir_ty = self.lower_ty(&declaration.ty.clone());
-            self.get_current_scope()
-                .typedefs
-                .insert(declaration.name.clone().into(), mir_ty);
-        } else {
-            let mir_ty = self.lower_ty(&declaration.ty.clone());
-            let body = declaration
-                .init
-                .as_ref()
-                .map(|expression| self.lower_expression(expression));
-            self.get_current_scope()
-                .variables
-                .insert(declaration.name.clone().into(), (mir_ty, body));
+        let mir_declaration = self.lower_declaration(declaration);
+        
+        match declaration.ty.storage_class {
+            Some(ast::StorageClassSpecifier::Typedef) => {
+                self.get_current_scope().typedefs.insert(mir_declaration.name, mir_declaration.ty);
+            }
+            Some(ast::StorageClassSpecifier::Extern) => {
+                self.get_current_scope().external_declaration.insert(mir_declaration.name.clone(), mir_declaration);
+                // if declaration.ty.is_function() {
+                //     self.get_current_scope().external_declaration.insert(mir_declaration.name.clone(), mir_declaration);
+                // } else {
+                //     unimplemented!()
+                // }
+            }
+            _ => {
+                self.get_current_scope().variables.insert(mir_declaration.name, (mir_declaration.ty, mir_declaration.init));
+
+            },
         }
+
+
+        // if declaration.ty.is_typedef() {
+        //     assert!(declaration.init.is_none());
+        //     let mir_ty = self.lower_ty(&declaration.ty.clone());
+        //     self.get_current_scope()
+        //         .typedefs
+        //         .insert(declaration.name.clone().into(), mir_ty);
+        // } else {
+        //     let mir_ty = self.lower_ty(&declaration.ty.clone());
+        //     let body = declaration
+        //         .init
+        //         .as_ref()
+        //         .map(|expression| self.lower_expression(expression));
+        //     self.get_current_scope()
+        //         .variables
+        //         .insert(declaration.name.clone().into(), (mir_ty, body));
+        // }
     }
-    pub fn lower_declaration2(&mut self, declaration: &hir::Declaration) -> mir::Declaration {
+    pub fn lower_declaration(&mut self, declaration: &hir::Declaration) -> mir::Declaration {
         let mir_ty = self.lower_ty(&declaration.ty.clone());
         let body = declaration
             .init
@@ -112,7 +135,7 @@ impl MirLower {
             body,
         };
 
-        mir::DebugPrinter::print(&f, 0);;
+        mir::DebugPrinter::print(&f, 0);
         self.get_current_scope().functions.push(f);
     }
     pub fn lower_ty(&mut self, ty: &hir::Ty) -> mir::Ty {
@@ -139,7 +162,13 @@ impl MirLower {
             hir::DataType::Function {
                 return_type,
                 parameters,
-            } => todo!(),
+            } => mir::Ty::Function {
+                return_type: Box::new(self.lower_ty(&return_type)),
+                parameters: parameters.iter().map(|param| mir::FunctionParameter {
+                    name: param.name.as_ref().map(|ident| ident.clone().into()),
+                    ty: self.lower_ty(&param.ty),
+                }).collect::<Vec<_>>(),
+            },
             // TODO: add padding to each field
             hir::DataType::Struct { name, fields } => todo!(),
         }
@@ -165,14 +194,15 @@ impl MirLower {
                     .map(|expression| self.lower_expression(expression)),
             )),
             hir::Statement::Declaration(declaration) => {
-                // self.lower_declaration(&declaration);
-                Some(glsc_mir::Statement::Declaration(self.lower_declaration2(declaration)))
-                
+                self.declare_in_current_scope(declaration);
+                Some(glsc_mir::Statement::Declaration(
+                    self.lower_declaration(declaration),
+                ))
             }
             hir::Statement::Expression(None) => None,
-            hir::Statement::Expression(Some(expression)) => Some(mir::Statement::Expression(
-                Some(self.lower_expression(expression)),
-            )),
+            hir::Statement::Expression(Some(expression)) => Some(mir::Statement::Expression(Some(
+                self.lower_expression(expression),
+            ))),
             hir::Statement::If(expression, statement, statement1) => Some(mir::Statement::If(
                 self.lower_expression(expression),
                 Box::new(self.lower_statement(statement).unwrap()),
@@ -187,7 +217,7 @@ impl MirLower {
                 let init = match for_initializer {
                     hir::ForInitializer::Empty => mir::Statement::Empty,
                     hir::ForInitializer::Declaration(declaration) => {
-                        mir::Statement::Declaration(self.lower_declaration2(declaration))
+                        mir::Statement::Declaration(self.lower_declaration(declaration))
                     }
                     hir::ForInitializer::Expression(expression) => {
                         mir::Statement::Expression(Some(self.lower_expression(expression)))
@@ -200,11 +230,12 @@ impl MirLower {
                 let loop_end = self.next_internal_label();
                 let asdasdasd = mir::Statement::If(
                     self.lower_expression(&condition.as_ref().unwrap()),
-
                     Box::new(mir::Statement::Compound(vec![
                         self.lower_statement(&body).unwrap(),
-                        mir::Statement::Expression(Some(self.lower_expression(&update.as_ref().unwrap()))),
-                        mir::Statement::GotoInternal(loop_start)
+                        mir::Statement::Expression(Some(
+                            self.lower_expression(&update.as_ref().unwrap()),
+                        )),
+                        mir::Statement::GotoInternal(loop_start),
                     ])),
                     Box::new(Some(mir::Statement::GotoInternal(loop_end))),
                 );
@@ -214,7 +245,10 @@ impl MirLower {
                     Box::new(asdasdasd),
                 ));
                 // Empty label technically contains everything after it
-                stmts.push(mir::Statement::LabeledStatement(glsc_mir::Label::Internal(loop_end), Box::new(mir::Statement::Empty)));
+                stmts.push(mir::Statement::LabeledStatement(
+                    glsc_mir::Label::Internal(loop_end),
+                    Box::new(mir::Statement::Empty),
+                ));
 
                 Some(mir::Statement::Compound(stmts))
             }
@@ -239,7 +273,10 @@ impl MirLower {
                 binary_operator.clone(),
                 Box::new(self.lower_expression(&rhs)),
             ),
-            hir::Expression::UnaryOp(unary_operator, expression) => mir::Expression::UnaryOp(unary_operator.clone(), Box::new(self.lower_expression(&expression))),
+            hir::Expression::UnaryOp(unary_operator, expression) => mir::Expression::UnaryOp(
+                unary_operator.clone(),
+                Box::new(self.lower_expression(&expression)),
+            ),
             hir::Expression::Constant(constant) => mir::Expression::Constant(constant.clone()),
         }
     }
