@@ -112,7 +112,7 @@ impl MirLower {
             body,
         };
 
-        mir::DebugPrinter::print(&f, 0);
+        mir::pretty::DebugPrinter::print(&f, 0);
         self.get_current_scope().functions.push(f);
     }
     pub fn lower_ty(&mut self, ty: &hir::Ty) -> mir::Ty {
