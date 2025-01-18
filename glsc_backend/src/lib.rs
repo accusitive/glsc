@@ -12,7 +12,6 @@ use glsc_mir as mir;
 use lang_c::ast::BinaryOperator;
 use target_lexicon::BinaryFormat;
 
-
 /// Pointer width
 const ADDR_TYPE: Type = types::I64;
 
@@ -30,7 +29,7 @@ struct Variable {
 #[derive(Debug)]
 enum VariableKind {
     Slot(StackSlot),
-    Value(Value)
+    Value(Value),
 }
 #[derive(Debug, Default)]
 struct Scope {
@@ -151,15 +150,23 @@ impl<'a, M: Module> FunctionTranslator<'a, M> {
     pub fn compile_function_body(&mut self, function_definition: &mir::FunctionDefinition) {
         self.scope_stack.push(Scope::default());
 
-        
-
         let entry = self.builder.create_block();
         self.builder.switch_to_block(entry);
         self.builder.seal_block(entry);
         self.builder.append_block_params_for_function_params(entry);
-        for (block_param, parameter) in self.builder.block_params(entry).iter().zip(function_definition.parameters.iter()) {
-
-            self.scope_stack.last_mut().unwrap().variables.insert(parameter.name.as_ref().unwrap().clone(), Variable { kind: VariableKind::Value(*block_param), mir_ty: parameter.ty.clone() });
+        for (block_param, parameter) in self
+            .builder
+            .block_params(entry)
+            .iter()
+            .zip(function_definition.parameters.iter())
+        {
+            self.scope_stack.last_mut().unwrap().variables.insert(
+                parameter.name.as_ref().unwrap().clone(),
+                Variable {
+                    kind: VariableKind::Value(*block_param),
+                    mir_ty: parameter.ty.clone(),
+                },
+            );
         }
         self.compile_statement(&function_definition.body);
         self.scope_stack.pop();
@@ -183,15 +190,13 @@ impl<'a, M: Module> FunctionTranslator<'a, M> {
                     size: 4,
                     align_shift: 4,
                 });
-                self.scope_stack
-                    .last_mut()
-                    .unwrap()
-                    .variables
-                    .insert(declaration.name.clone(), Variable {
+                self.scope_stack.last_mut().unwrap().variables.insert(
+                    declaration.name.clone(),
+                    Variable {
                         kind: VariableKind::Slot(slot),
-                        mir_ty: declaration.ty.clone()
-                    });
-
+                        mir_ty: declaration.ty.clone(),
+                    },
+                );
                 if let Some(init) = &declaration.init {
                     let compiled_init = self.compile_expression(init);
 
@@ -219,20 +224,24 @@ impl<'a, M: Module> FunctionTranslator<'a, M> {
     pub fn compile_expression(&mut self, expression: &mir::Expression) -> Value {
         match expression {
             glsc_mir::Expression::Identifier(identifier) => {
-                let var = self.scope_stack.last().unwrap().variables.get(identifier).unwrap();
+                let var = self
+                    .scope_stack
+                    .last()
+                    .unwrap()
+                    .variables
+                    .get(identifier)
+                    .unwrap();
 
                 match var.kind {
                     VariableKind::Slot(stack_slot) => {
                         self.builder.ins().stack_load(types::I32, stack_slot, 0)
-                    },
-                    VariableKind::Value(value) => value
+                    }
+                    VariableKind::Value(value) => value,
                 }
-
-
-            },
+            }
             glsc_mir::Expression::BinOp(lhs, binary_operator, rhs) => {
                 self.compile_binop(lhs, binary_operator, rhs)
-            },
+            }
             glsc_mir::Expression::UnaryOp(unary_operator, expression) => todo!(),
             glsc_mir::Expression::Constant(constant) => self.compile_constant(constant),
         }
@@ -240,10 +249,16 @@ impl<'a, M: Module> FunctionTranslator<'a, M> {
     fn get_expression_type(&mut self, expression: &mir::Expression) -> mir::Ty {
         match expression {
             glsc_mir::Expression::Identifier(identifier) => {
-                let var = self.scope_stack.last().unwrap().variables.get(identifier).unwrap();
+                let var = self
+                    .scope_stack
+                    .last()
+                    .unwrap()
+                    .variables
+                    .get(identifier)
+                    .unwrap();
 
                 var.mir_ty.clone()
-            },
+            }
             glsc_mir::Expression::BinOp(expression, binary_operator, expression1) => {
                 let lty = self.get_expression_type(expression);
                 let rty = self.get_expression_type(expression);
@@ -253,20 +268,23 @@ impl<'a, M: Module> FunctionTranslator<'a, M> {
                 } else {
                     lty.clone()
                 }
-            },
+            }
             glsc_mir::Expression::UnaryOp(unary_operator, expression) => todo!(),
             glsc_mir::Expression::Constant(constant) => mir::Ty::Int,
         }
     }
-    pub fn compile_binop(&mut self, lhs: &mir::Expression, op: &BinaryOperator, rhs: &mir::Expression) -> Value {
+    pub fn compile_binop(
+        &mut self,
+        lhs: &mir::Expression,
+        op: &BinaryOperator,
+        rhs: &mir::Expression,
+    ) -> Value {
         let lhs = self.compile_expression(lhs);
         let rhs = self.compile_expression(rhs);
 
         match op {
-            BinaryOperator::Plus => {
-                self.builder.ins().iadd(lhs, rhs)
-            },
-            _ => todo!()
+            BinaryOperator::Plus => self.builder.ins().iadd(lhs, rhs),
+            _ => todo!(),
         }
     }
     pub fn compile_constant(&mut self, constant: &lang_c::ast::Constant) -> Value {
