@@ -13,3 +13,5 @@ target-lexicon = "0.12.16"
 
 glsc_mir = {path = "../glsc_mir"}
 glsc_mir_lower = {path = "../glsc_mir_lower"}
+
+lang-c = "0.15.1"

@@ -35,4 +35,10 @@ fn main() {
     let mut mir_lower = glsc_mir_lower::MirLower::new();
     mir_lower.lower_translation_unit(&hir);
     dbg!(&mir_lower);
+
+    let mut backend = glsc_backend::Backend::new();
+    let object = backend.compile(&mir_lower);
+
+    std::fs::create_dir_all("./target/glsc").unwrap();
+    std::fs::write("target/glsc/out.o", object).unwrap();
 }

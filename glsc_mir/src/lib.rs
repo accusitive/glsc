@@ -3,7 +3,7 @@ use lang_c::ast as ast;
 
 pub mod pretty;
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
-pub struct Identifier(String);
+pub struct Identifier(pub String);
 
 impl Into<crate::Identifier> for ast::Identifier {
     fn into(self) -> crate::Identifier {
@@ -44,11 +44,16 @@ pub struct FunctionParameter {
     pub ty: Ty,
 }
 #[derive(Debug)]
-pub struct Function {
+pub struct FunctionDefinition {
     pub name: Identifier,
     pub parameters: Vec<FunctionParameter>,
     pub return_type: Ty,
     pub body: Statement
+}
+#[derive(Debug)]
+pub enum ExternalDeclaration {
+    FunctionDefinition(FunctionDefinition),
+    Declaration(Declaration)
 }
 #[derive(Debug)]
 pub struct Declaration {

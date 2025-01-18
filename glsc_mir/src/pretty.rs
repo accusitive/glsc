@@ -55,7 +55,7 @@ impl VerboseDebugPrinter for FunctionParameter {
     }
 }
 
-impl VerboseDebugPrinter for Function {
+impl VerboseDebugPrinter for FunctionDefinition {
     fn verbose_debug_print(&self, indent: usize) {
         println!("{:indent$}Function:", "", indent = indent);
         self.name.verbose_debug_print(indent + 2);
@@ -235,7 +235,7 @@ impl DebugPrinter for FunctionParameter {
     }
 }
 
-impl DebugPrinter for Function {
+impl DebugPrinter for FunctionDefinition {
     fn print(&self, indent: usize) {
         self.return_type.print(indent);
         print!(" ");

@@ -223,6 +223,7 @@ dependencies = [
  "cranelift-object",
  "glsc_mir",
  "glsc_mir_lower",
+ "lang-c",
  "target-lexicon",
 ]
 

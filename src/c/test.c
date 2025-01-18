@@ -1,3 +1,4 @@
 int add(int lhs, int rhs) {
-    return lhs + rhs;
+    int a = 105;
+    return a;
 }

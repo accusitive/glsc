@@ -6,24 +6,26 @@ use std::collections::HashMap;
 #[derive(Debug)]
 pub struct Scope {
     pub typedefs: HashMap<mir::Identifier, mir::Ty>,
-    pub functions: Vec<mir::Function>,
-    pub variables: HashMap<mir::Identifier, (mir::Ty, Option<mir::Expression>)>,
-    pub external_declaration: HashMap<mir::Identifier, mir::Declaration>
+    // pub functions: Vec<mir::FunctionDefinition>,
+    // pub variables: HashMap<mir::Identifier, (mir::Ty, Option<mir::Expression>)>,
+    // pub external_declaration: HashMap<mir::Identifier, mir::Declaration>
 }
 
 impl Scope {
     pub fn new() -> Self {
         Self {
             typedefs: HashMap::new(),
-            functions: Vec::new(),
-            variables: HashMap::new(),
-            external_declaration: HashMap::new()
+            // functions: Vec::new(),
+            // variables: HashMap::new(),
+            // external_declaration: HashMap::new()
         }
     }
 }
 #[derive(Debug)]
 pub struct MirLower {
     pub scopes: Vec<Scope>,
+    /// technically maybe this should be called external declaration 
+    pub global_declarations: Vec<mir::ExternalDeclaration>,
     internal_label: u64,
 }
 
@@ -33,6 +35,7 @@ impl MirLower {
             // Global scope
             scopes: vec![Scope::new()],
             internal_label: 0,
+            global_declarations: vec![]
         }
     }
     pub fn get_current_scope(&mut self) -> &mut Scope {
@@ -49,33 +52,29 @@ impl MirLower {
 impl MirLower {
     pub fn lower_translation_unit(&mut self, unit: &hir::TranslationUnit) {
         for declaration in &unit.declarations {
-            self.lower_external_declaration(declaration);
+            self.lower_external_declaration(declaration);   
         }
     }
     pub fn lower_external_declaration(&mut self, external_declaration: &hir::ExternalDeclaration) {
         match external_declaration {
             hir::ExternalDeclaration::FunctionDefinition(function_definition) => {
-                self.lower_function_definition(function_definition)
+                let function_definition = self.lower_function_definition(function_definition);
+                self.global_declarations.push(mir::ExternalDeclaration::FunctionDefinition(function_definition));
             }
             hir::ExternalDeclaration::Declaration(declaration) => {
-                self.declare_in_current_scope(declaration)
+                let mir_declaration = self.lower_declaration(declaration);
+                self.declare_in_current_scope_if_typedef(declaration);
+                
+                self.global_declarations.push(mir::ExternalDeclaration::Declaration(mir_declaration));
             }
         }
     }
-    pub fn declare_in_current_scope(&mut self, declaration: &hir::Declaration) {
+    /// Currently this only handles typedefs
+    pub fn declare_in_current_scope_if_typedef(&mut self, declaration: &hir::Declaration) {
         let mir_declaration = self.lower_declaration(declaration);
         
-        match declaration.ty.storage_class {
-            Some(ast::StorageClassSpecifier::Typedef) => {
-                self.get_current_scope().typedefs.insert(mir_declaration.name, mir_declaration.ty);
-            }
-            Some(ast::StorageClassSpecifier::Extern) => {
-                self.get_current_scope().external_declaration.insert(mir_declaration.name.clone(), mir_declaration);
-            }
-            _ => {
-                self.get_current_scope().variables.insert(mir_declaration.name, (mir_declaration.ty, mir_declaration.init));
-
-            },
+        if let Some(ast::StorageClassSpecifier::Typedef) = declaration.ty.storage_class {
+            self.get_current_scope().typedefs.insert(mir_declaration.name, mir_declaration.ty);
         }
     }
     pub fn lower_declaration(&mut self, declaration: &hir::Declaration) -> mir::Declaration {
@@ -91,7 +90,7 @@ impl MirLower {
             name: declaration.name.clone().into(),
         }
     }
-    pub fn lower_function_definition(&mut self, function_definition: &hir::FunctionDefinition) {
+    pub fn lower_function_definition(&mut self, function_definition: &hir::FunctionDefinition) -> mir::FunctionDefinition{
         let name = function_definition.name.clone().into();
         let return_type = self.lower_ty(&function_definition.return_type);
 
@@ -105,15 +104,12 @@ impl MirLower {
         let body = self
             .lower_statement(&function_definition.body)
             .expect("Function definition with empty body?");
-        let f = mir::Function {
+       mir::FunctionDefinition {
             return_type,
             name,
             parameters,
             body,
-        };
-
-        mir::pretty::DebugPrinter::print(&f, 0);
-        self.get_current_scope().functions.push(f);
+        }
     }
     pub fn lower_ty(&mut self, ty: &hir::Ty) -> mir::Ty {
         match &ty.data_type {
@@ -171,7 +167,7 @@ impl MirLower {
                     .map(|expression| self.lower_expression(expression)),
             )),
             hir::Statement::Declaration(declaration) => {
-                self.declare_in_current_scope(declaration);
+                self.declare_in_current_scope_if_typedef(declaration);
                 Some(glsc_mir::Statement::Declaration(
                     self.lower_declaration(declaration),
                 ))
