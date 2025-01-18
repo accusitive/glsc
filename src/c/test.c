@@ -1,5 +1,3 @@
-extern int printf(char* fmt, int);
-extern int a;
-void main(void) {
-
+int add(int lhs, int rhs) {
+    return lhs + rhs;
 }

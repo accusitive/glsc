@@ -3,7 +3,7 @@ use cranelift::prelude::*;
 use cranelift_module::Module;
 use cranelift_object::{ObjectBuilder, ObjectModule};
 use target_lexicon::BinaryFormat;
-
+use glsc_mir as mir;
 pub struct Backend {
     pub module: ObjectModule,
     pub ctx: Context,
@@ -29,5 +29,8 @@ impl Backend {
         let mut ctx = module.make_context();
 
         Self { ctx, module }
+    }
+    pub fn compile(&mut self, mir: &glsc_mir_lower::MirLower) {
+        
     }
 }

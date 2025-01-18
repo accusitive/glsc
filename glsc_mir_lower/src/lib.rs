@@ -71,35 +71,12 @@ impl MirLower {
             }
             Some(ast::StorageClassSpecifier::Extern) => {
                 self.get_current_scope().external_declaration.insert(mir_declaration.name.clone(), mir_declaration);
-                // if declaration.ty.is_function() {
-                //     self.get_current_scope().external_declaration.insert(mir_declaration.name.clone(), mir_declaration);
-                // } else {
-                //     unimplemented!()
-                // }
             }
             _ => {
                 self.get_current_scope().variables.insert(mir_declaration.name, (mir_declaration.ty, mir_declaration.init));
 
             },
         }
-
-
-        // if declaration.ty.is_typedef() {
-        //     assert!(declaration.init.is_none());
-        //     let mir_ty = self.lower_ty(&declaration.ty.clone());
-        //     self.get_current_scope()
-        //         .typedefs
-        //         .insert(declaration.name.clone().into(), mir_ty);
-        // } else {
-        //     let mir_ty = self.lower_ty(&declaration.ty.clone());
-        //     let body = declaration
-        //         .init
-        //         .as_ref()
-        //         .map(|expression| self.lower_expression(expression));
-        //     self.get_current_scope()
-        //         .variables
-        //         .insert(declaration.name.clone().into(), (mir_ty, body));
-        // }
     }
     pub fn lower_declaration(&mut self, declaration: &hir::Declaration) -> mir::Declaration {
         let mir_ty = self.lower_ty(&declaration.ty.clone());
@@ -203,11 +180,11 @@ impl MirLower {
             hir::Statement::Expression(Some(expression)) => Some(mir::Statement::Expression(Some(
                 self.lower_expression(expression),
             ))),
-            hir::Statement::If(expression, statement, statement1) => Some(mir::Statement::If(
+            hir::Statement::If(expression, then, elze) => Some(mir::Statement::If(
                 self.lower_expression(expression),
-                Box::new(self.lower_statement(statement).unwrap()),
+                Box::new(self.lower_statement(then).unwrap()),
                 Box::new(
-                    statement1
+                    elze
                         .clone()
                         .map(|stmt| self.lower_statement(&stmt).unwrap()),
                 ),
