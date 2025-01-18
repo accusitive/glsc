@@ -15,7 +15,7 @@ impl Into<crate::Identifier> for &ast::Identifier {
         crate::Identifier(self.name.clone())
     }
 }
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Ty {
     None,
     Void,
@@ -38,7 +38,7 @@ pub enum Ty {
     //     fields: Vec<StructField>
     // }
 }
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FunctionParameter {
     pub name: Option<Identifier>,
     pub ty: Ty,
