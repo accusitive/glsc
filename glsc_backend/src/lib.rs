@@ -1,4 +1,4 @@
-use std::{collections::HashMap, ffi::CString};
+use std::{collections::HashMap, ffi::CString, ops::Deref};
 
 use ahash::RandomState;
 use cranelift::codegen::Context;
@@ -41,6 +41,7 @@ struct FunctionTranslator<'a, M: Module> {
     builder: FunctionBuilder<'a>,
     module: &'a mut M,
     scope_stack: &'a mut Vec<Scope>,
+    labels: Vec<(mir::Label, Block)>,
 }
 
 type CliffTy = cranelift_codegen::ir::Type;
@@ -91,7 +92,8 @@ impl Backend {
                         };
                         self.designate_external_function(&definition);
                     } else {
-                        todo!()
+
+                        // todo!()
                     }
                 }
             }
@@ -138,9 +140,11 @@ impl Backend {
             builder,
             module: &mut self.module,
             scope_stack: &mut self.scope_stack,
+            labels: Vec::new(),
         };
 
         translator.compile_function_body(function_definition);
+        translator.builder.seal_all_blocks();
         println!("{}", self.ctx.func);
 
         self.module.define_function(func_id, &mut self.ctx).unwrap();
@@ -278,14 +282,77 @@ impl<'a, M: Module> FunctionTranslator<'a, M> {
             glsc_mir::Statement::Expression(Some(expression)) => {
                 self.compile_expression(expression);
             }
-            glsc_mir::Statement::LabeledStatement(label, statement) => todo!(),
+            glsc_mir::Statement::LabeledStatement(label, statement) => {
+                let (existed, label_block) =self.get_or_create_label(label);
+                // If the label didn't exist, jump to it, otherwise it might never be xecuted
+                // If the label did exist, this was done previously
+                if !existed {
+                    self.builder.ins().jump(label_block, &[]);
+                }
+                self.builder.switch_to_block(label_block);
+                self.compile_statement(&statement);
+            }
             glsc_mir::Statement::GotoLabel(identifier) => todo!(),
-            glsc_mir::Statement::GotoInternal(_) => todo!(),
-            glsc_mir::Statement::Empty => todo!(),
-            glsc_mir::Statement::If(expression, statement, statement1) => todo!(),
+            glsc_mir::Statement::GotoInternal(label) => {
+                let block = match self.get_label_by_internal_id(label) {
+                    Some(block) => block,
+                    None => {
+                        let block = self.builder.create_block();
+                        self.labels.push((mir::Label::Internal(*label), block));
+                        block
+                    },
+                };
+                self.builder.ins().jump(block, &[]);
+            }
+            glsc_mir::Statement::Empty => {
+                self.builder.ins().nop();
+            },
+            glsc_mir::Statement::If(condition, then, elze) => {
+                dbg!(&condition, then, elze);
+                let cond = self.compile_expression(condition);
+                let then_block = self.builder.create_block();
+                let elze_block = self.builder.create_block();
+
+                self.builder
+                    .ins()
+                    .brif(cond, then_block, &[], elze_block, &[]);
+
+                self.builder.switch_to_block(then_block);
+                self.compile_statement(&then);
+                if let Some(elze) = elze.deref() {
+                    self.builder.switch_to_block(elze_block);
+                    self.compile_statement(&elze);
+                }
+            }
         }
     }
+    // returns a bool of whether the block already existed
+    fn get_or_create_label(&mut self, label: &mir::Label) -> (bool, Block) {
+        let l = match label {
+            glsc_mir::Label::Internal(x) => x,
+            _ => todo!()
+        };
+        let block = match self.get_label_by_internal_id(l) {
+            Some(block) => (true, block),
+            None => {
+                let block = self.builder.create_block();
+                self.labels.push((mir::Label::Internal(*l), block));
+                (false, block)
+            },
+        };
 
+        block
+    }
+    fn get_label_by_internal_id(&self, internal_id: &u64) -> Option<Block> {
+        for (label, block) in &self.labels {
+            if let mir::Label::Internal(label_id) = label {
+                if label_id == internal_id {
+                    return Some(*block);
+                }
+            }
+        }
+        return None;
+    }
     pub fn compile_expression(&mut self, expression: &mir::Expression) -> Value {
         match expression {
             glsc_mir::Expression::Identifier(identifier) => {
@@ -339,7 +406,6 @@ impl<'a, M: Module> FunctionTranslator<'a, M> {
                 self.builder.ins().global_value(ADDR_TYPE, gv)
             }
             glsc_mir::Expression::Cast(expression, ty) => self.compile_expression(expression),
-            
         }
     }
     pub fn compile_call(
@@ -427,13 +493,9 @@ impl<'a, M: Module> FunctionTranslator<'a, M> {
             },
             glsc_mir::Expression::Call(expression, vec) => unimplemented!(),
             glsc_mir::Expression::StringLiteral(_) => mir::Ty::Pointer(Box::new(mir::Ty::Char)),
-            glsc_mir::Expression::Cast(expression, ty) => {
-                match ty {
-                    glsc_mir::Ty::Pointer(pointer_ty) => {
-                        ty.clone()
-                    },
-                    _ => todo!("implement cast between {:?} for expr {:?}", ty, expression)
-                }
+            glsc_mir::Expression::Cast(expression, ty) => match ty {
+                glsc_mir::Ty::Pointer(pointer_ty) => ty.clone(),
+                _ => todo!("implement cast between {:?} for expr {:?}", ty, expression),
             },
         }
     }
@@ -470,6 +532,11 @@ impl<'a, M: Module> FunctionTranslator<'a, M> {
                 let loc = self.get_lvalue_location(lhs);
                 self.builder.ins().store(MemFlags::new(), rhs_value, loc, 0);
                 rhs_value
+            }
+            BinaryOperator::Less => {
+                self.builder
+                    .ins()
+                    .icmp(IntCC::SignedLessThan, lhs_value, rhs_value)
             }
             _ => unimplemented!(),
         }
@@ -515,9 +582,8 @@ impl<'a, M: Module> FunctionTranslator<'a, M> {
                 let expression_type = self.get_expression_type(expression);
                 let dereferenced = match &expression_type {
                     glsc_mir::Ty::Pointer(ty) => ty,
-                    _ => unimplemented!()
+                    _ => unimplemented!(),
                 };
-
 
                 self.builder
                     .ins()

@@ -151,10 +151,8 @@ impl MirLower {
             hir::DataType::LongLong => mir::Ty::LongLong,
             hir::DataType::TypedefName(identifier) => {
                 let identifier = identifier.into();
-                self.get_current_scope()
-                    .typedefs
-                    .get(&identifier)
-                    .expect("Failed to find typedef")
+                self.resolve_typedef(&identifier)
+                    .expect("Failed to find typedef. ")
                     .clone()
             }
             hir::DataType::Pointer(ty) => mir::Ty::Pointer(Box::new(self.lower_ty(ty))),
@@ -241,7 +239,8 @@ impl MirLower {
 
                 let loop_start = self.next_internal_label();
                 let loop_end = self.next_internal_label();
-                let asdasdasd = mir::Statement::If(
+
+                let loop_entry = mir::Statement::If(
                     self.lower_expression(&condition.as_ref().unwrap()),
                     Box::new(mir::Statement::Compound(vec![
                         self.lower_statement(&body).unwrap(),
@@ -255,7 +254,7 @@ impl MirLower {
 
                 stmts.push(mir::Statement::LabeledStatement(
                     glsc_mir::Label::Internal(loop_start),
-                    Box::new(asdasdasd),
+                    Box::new(loop_entry),
                 ));
                 // Empty label technically contains everything after it
                 stmts.push(mir::Statement::LabeledStatement(
@@ -300,7 +299,7 @@ impl MirLower {
 
                 let (offset, field_ty) = self
                     .get_struct_field_offset(&expression_ty, &identifier.into())
-                    .unwrap();
+                    .expect(&format!("couldnt find struct field {:?} for struct type {:?}", identifier, expression_ty));
 
                 let address =
                     mir::Expression::UnaryOp(ast::UnaryOperator::Address, Box::new(mir_expression));
