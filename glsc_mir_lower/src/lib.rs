@@ -1,6 +1,6 @@
 use glsc_hir::{self as hir};
 use glsc_mir::{self as mir};
-use lang_c::ast as ast;
+use lang_c::ast;
 use std::collections::HashMap;
 
 #[derive(Debug)]
@@ -24,7 +24,7 @@ impl Scope {
 #[derive(Debug)]
 pub struct MirLower {
     pub scopes: Vec<Scope>,
-    /// technically maybe this should be called external declaration 
+    /// technically maybe this should be called external declaration
     pub global_declarations: Vec<mir::ExternalDeclaration>,
     internal_label: u64,
 }
@@ -35,7 +35,7 @@ impl MirLower {
             // Global scope
             scopes: vec![Scope::new()],
             internal_label: 0,
-            global_declarations: vec![]
+            global_declarations: vec![],
         }
     }
     pub fn get_current_scope(&mut self) -> &mut Scope {
@@ -52,29 +52,35 @@ impl MirLower {
 impl MirLower {
     pub fn lower_translation_unit(&mut self, unit: &hir::TranslationUnit) {
         for declaration in &unit.declarations {
-            self.lower_external_declaration(declaration);   
+            self.lower_external_declaration(declaration);
         }
     }
     pub fn lower_external_declaration(&mut self, external_declaration: &hir::ExternalDeclaration) {
         match external_declaration {
             hir::ExternalDeclaration::FunctionDefinition(function_definition) => {
                 let function_definition = self.lower_function_definition(function_definition);
-                self.global_declarations.push(mir::ExternalDeclaration::FunctionDefinition(function_definition));
+                self.global_declarations
+                    .push(mir::ExternalDeclaration::FunctionDefinition(
+                        function_definition,
+                    ));
             }
             hir::ExternalDeclaration::Declaration(declaration) => {
                 let mir_declaration = self.lower_declaration(declaration);
                 self.declare_in_current_scope_if_typedef(declaration);
-                
-                self.global_declarations.push(mir::ExternalDeclaration::Declaration(mir_declaration));
+
+                self.global_declarations
+                    .push(mir::ExternalDeclaration::Declaration(mir_declaration));
             }
         }
     }
     /// Currently this only handles typedefs
     pub fn declare_in_current_scope_if_typedef(&mut self, declaration: &hir::Declaration) {
         let mir_declaration = self.lower_declaration(declaration);
-        
+
         if let Some(ast::StorageClassSpecifier::Typedef) = declaration.ty.storage_class {
-            self.get_current_scope().typedefs.insert(mir_declaration.name, mir_declaration.ty);
+            self.get_current_scope()
+                .typedefs
+                .insert(mir_declaration.name, mir_declaration.ty);
         }
     }
     pub fn lower_declaration(&mut self, declaration: &hir::Declaration) -> mir::Declaration {
@@ -90,7 +96,10 @@ impl MirLower {
             name: declaration.name.clone().into(),
         }
     }
-    pub fn lower_function_definition(&mut self, function_definition: &hir::FunctionDefinition) -> mir::FunctionDefinition{
+    pub fn lower_function_definition(
+        &mut self,
+        function_definition: &hir::FunctionDefinition,
+    ) -> mir::FunctionDefinition {
         let name = function_definition.name.clone().into();
         let return_type = self.lower_ty(&function_definition.return_type);
 
@@ -104,7 +113,7 @@ impl MirLower {
         let body = self
             .lower_statement(&function_definition.body)
             .expect("Function definition with empty body?");
-       mir::FunctionDefinition {
+        mir::FunctionDefinition {
             return_type,
             name,
             parameters,
@@ -137,13 +146,19 @@ impl MirLower {
                 parameters,
             } => mir::Ty::Function {
                 return_type: Box::new(self.lower_ty(&return_type)),
-                parameters: parameters.iter().map(|param| mir::FunctionParameter {
-                    name: param.name.as_ref().map(|ident| ident.clone().into()),
-                    ty: self.lower_ty(&param.ty),
-                }).collect::<Vec<_>>(),
+                parameters: parameters
+                    .iter()
+                    .map(|param| mir::FunctionParameter {
+                        name: param.name.as_ref().map(|ident| ident.clone().into()),
+                        ty: self.lower_ty(&param.ty),
+                    })
+                    .collect::<Vec<_>>(),
             },
             // TODO: add padding to each field
-            hir::DataType::Struct { name, fields } => todo!(),
+            hir::DataType::Struct { name, fields } => mir::Ty::Struct {
+                name: name.as_ref().map(|n| n.into()),
+                fields: vec![],
+            },
         }
     }
     pub fn lower_statement(&mut self, statement: &hir::Statement) -> Option<mir::Statement> {
@@ -180,8 +195,7 @@ impl MirLower {
                 self.lower_expression(expression),
                 Box::new(self.lower_statement(then).unwrap()),
                 Box::new(
-                    elze
-                        .clone()
+                    elze.clone()
                         .map(|stmt| self.lower_statement(&stmt).unwrap()),
                 ),
             )),
@@ -241,16 +255,24 @@ impl MirLower {
             hir::Expression::Identifier(identifier) => {
                 mir::Expression::Identifier(identifier.into())
             }
-            hir::Expression::BinOp(lhs, binary_operator, rhs) => mir::Expression::BinOp(
-                Box::new(self.lower_expression(&lhs)),
-                binary_operator.clone(),
-                Box::new(self.lower_expression(&rhs)),
-            ),
+            hir::Expression::BinOp(lhs, binary_operator, rhs) => {
+                match binary_operator {
+                    _ => {
+                        mir::Expression::BinOp(
+                            Box::new(self.lower_expression(&lhs)),
+                            binary_operator.clone(),
+                            Box::new(self.lower_expression(&rhs)),
+                        )
+                    }
+                }
+                
+            }
             hir::Expression::UnaryOp(unary_operator, expression) => mir::Expression::UnaryOp(
                 unary_operator.clone(),
                 Box::new(self.lower_expression(&expression)),
             ),
             hir::Expression::Constant(constant) => mir::Expression::Constant(constant.clone()),
+            hir::Expression::Member(expression, identifier, member_access_kind) => todo!(),
         }
     }
 }

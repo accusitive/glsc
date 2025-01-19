@@ -41,6 +41,14 @@ impl VerboseDebugPrinter for Ty {
                     param.verbose_debug_print(indent + 4);
                 }
             }
+            Ty::Struct { name, fields } => {
+                // println!("struct {} {{", name.as_ref().map(|n| n.0.clone()).unwrap_or("".to_string()));
+                // for field in fields {
+                    // print!("")
+                // }
+                println!("INCOMPLETE")
+            },
+            
         }
     }
 }
@@ -221,6 +229,8 @@ impl DebugPrinter for Ty {
                 }
                 print!(")");
             }
+            Ty::Struct { name, fields } => println!("INCOMPLETE"),
+            
         }
     }
 }

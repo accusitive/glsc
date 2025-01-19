@@ -8,8 +8,8 @@ use cranelift_codegen::{
 };
 use cranelift_module::{Linkage, Module};
 use cranelift_object::{ObjectBuilder, ObjectModule};
-use glsc_mir as mir;
-use lang_c::ast::BinaryOperator;
+use glsc_mir::{self as mir, Identifier};
+use lang_c::ast::{BinaryOperator, UnaryOperator};
 use target_lexicon::BinaryFormat;
 
 /// Pointer width
@@ -73,7 +73,7 @@ impl Backend {
             match declaration {
                 glsc_mir::ExternalDeclaration::FunctionDefinition(function_definition) => {
                     self.define_function(&function_definition);
-                    println!("{}", self.ctx.func);
+                    // println!("{}", self.ctx.func);
                 }
                 glsc_mir::ExternalDeclaration::Declaration(declaration) => todo!(),
             }
@@ -96,6 +96,8 @@ impl Backend {
             scope_stack: &mut self.scope_stack,
         };
         translator.compile_function_body(function_definition);
+        println!("{}", self.ctx.func);
+
         self.module.define_function(func_id, &mut self.ctx).unwrap();
 
         self.verify_function();
@@ -107,21 +109,21 @@ impl Backend {
 
         for parameter in &function_definition.parameters {
             sig.params.push(AbiParam {
-                value_type: self.cliff_ty(&parameter.ty),
+                value_type: Self::cliff_ty(&parameter.ty),
                 purpose: ArgumentPurpose::Normal,
                 extension: ArgumentExtension::None,
             });
         }
         if !matches!(function_definition.return_type, mir::Ty::Void) {
             sig.returns.push(AbiParam {
-                value_type: self.cliff_ty(&function_definition.return_type),
+                value_type: Self::cliff_ty(&function_definition.return_type),
                 purpose: ArgumentPurpose::Normal,
                 extension: ArgumentExtension::None,
             });
         }
         sig
     }
-    pub fn cliff_ty(&self, ty: &mir::Ty) -> CliffTy {
+    pub fn cliff_ty(ty: &mir::Ty) -> CliffTy {
         match ty {
             glsc_mir::Ty::Void => todo!(),
             glsc_mir::Ty::Short => types::I16,
@@ -132,8 +134,12 @@ impl Backend {
             glsc_mir::Ty::TS18661Float(ts18661_float_type) => todo!(),
             glsc_mir::Ty::Char => types::I8,
             glsc_mir::Ty::LongLong => types::I128,
-            glsc_mir::Ty::Pointer(ty) => todo!(),
-            glsc_mir::Ty::TypedefName(_) | glsc_mir::Ty::None | glsc_mir::Ty::Function { .. } => {
+            glsc_mir::Ty::Pointer(ty) => ADDR_TYPE,
+            // These will all be abstracted away - hopefully
+            glsc_mir::Ty::Struct { .. }
+            | glsc_mir::Ty::TypedefName(_)
+            | glsc_mir::Ty::None
+            | glsc_mir::Ty::Function { .. } => {
                 unreachable!()
             }
         }
@@ -187,6 +193,7 @@ impl<'a, M: Module> FunctionTranslator<'a, M> {
             glsc_mir::Statement::Declaration(declaration) => {
                 let slot = self.builder.create_sized_stack_slot(StackSlotData {
                     kind: StackSlotKind::ExplicitSlot,
+                    //TODO: Fix size
                     size: 4,
                     align_shift: 4,
                 });
@@ -234,7 +241,9 @@ impl<'a, M: Module> FunctionTranslator<'a, M> {
 
                 match var.kind {
                     VariableKind::Slot(stack_slot) => {
-                        self.builder.ins().stack_load(types::I32, stack_slot, 0)
+                        self.builder
+                            .ins()
+                            .stack_load(Backend::cliff_ty(&var.mir_ty), stack_slot, 0)
                     }
                     VariableKind::Value(value) => value,
                 }
@@ -242,20 +251,23 @@ impl<'a, M: Module> FunctionTranslator<'a, M> {
             glsc_mir::Expression::BinOp(lhs, binary_operator, rhs) => {
                 self.compile_binop(lhs, binary_operator, rhs)
             }
-            glsc_mir::Expression::UnaryOp(unary_operator, expression) => todo!(),
+            glsc_mir::Expression::UnaryOp(unary_operator, expression) => {
+                self.compile_unop(unary_operator, &expression)
+            }
             glsc_mir::Expression::Constant(constant) => self.compile_constant(constant),
         }
     }
     fn get_expression_type(&mut self, expression: &mir::Expression) -> mir::Ty {
         match expression {
             glsc_mir::Expression::Identifier(identifier) => {
-                let var = self
-                    .scope_stack
-                    .last()
-                    .unwrap()
-                    .variables
-                    .get(identifier)
-                    .unwrap();
+                let var = self.find_variable_in_scope(identifier).unwrap();
+                // let var = self
+                //     .scope_stack
+                //     .last()
+                //     .unwrap()
+                //     .variables
+                //     .get(identifier)
+                //     .unwrap();
 
                 var.mir_ty.clone()
             }
@@ -269,9 +281,22 @@ impl<'a, M: Module> FunctionTranslator<'a, M> {
                     lty.clone()
                 }
             }
-            glsc_mir::Expression::UnaryOp(unary_operator, expression) => todo!(),
+            glsc_mir::Expression::UnaryOp(unary_operator, expression) => match unary_operator {
+                UnaryOperator::Address => {
+                    mir::Ty::Pointer(Box::new(self.get_expression_type(expression)))
+                }
+                _ => self.get_expression_type(&expression),
+            },
             glsc_mir::Expression::Constant(constant) => mir::Ty::Int,
         }
+    }
+    fn find_variable_in_scope(&mut self, i: &Identifier) -> Option<&Variable> {
+        for scope in &*self.scope_stack {
+            if let Some(var) = scope.variables.get(i) {
+                return Some(var);
+            }
+        }
+        return None;
     }
     pub fn compile_binop(
         &mut self,
@@ -279,12 +304,67 @@ impl<'a, M: Module> FunctionTranslator<'a, M> {
         op: &BinaryOperator,
         rhs: &mir::Expression,
     ) -> Value {
-        let lhs = self.compile_expression(lhs);
-        let rhs = self.compile_expression(rhs);
+        let lhs_value = self.compile_expression(lhs);
+        let rhs_value = self.compile_expression(rhs);
 
         match op {
-            BinaryOperator::Plus => self.builder.ins().iadd(lhs, rhs),
-            _ => todo!(),
+            BinaryOperator::Plus => self.builder.ins().iadd(lhs_value, rhs_value),
+            BinaryOperator::Assign => {
+                let loc = self.get_lvalue_location(lhs);
+                self.builder.ins().store(MemFlags::new(), rhs_value, loc, 0);
+                rhs_value
+            }
+            _ => unimplemented!()
+        }
+    }
+    fn get_lvalue_location(&mut self, expression: &mir::Expression) -> Value {
+        match expression {
+            glsc_mir::Expression::Identifier(identifier) => {
+                let v = self.find_variable_in_scope(identifier).unwrap();
+                match v.kind {
+                    VariableKind::Slot(stack_slot) => {
+                        self.builder.ins().stack_addr(ADDR_TYPE, stack_slot, 0)
+                    }
+                    VariableKind::Value(_) => panic!("trying to assign to not lvalue"),
+                }
+            }
+            glsc_mir::Expression::UnaryOp(UnaryOperator::Address, e) => {
+                self.compile_expression(e)
+            }
+            glsc_mir::Expression::BinOp(..)
+            | glsc_mir::Expression::UnaryOp(..)
+            | glsc_mir::Expression::Constant(..) => unreachable!(),
+        }
+    }
+    pub fn compile_unop(
+        &mut self,
+        operator: &lang_c::ast::UnaryOperator,
+        expression: &mir::Expression,
+    ) -> Value {
+        match operator {
+            UnaryOperator::PostIncrement => todo!(),
+            UnaryOperator::PostDecrement => todo!(),
+            UnaryOperator::PreIncrement => todo!(),
+            UnaryOperator::PreDecrement => todo!(),
+            UnaryOperator::Address => {
+                let slot = self.builder.create_sized_stack_slot(StackSlotData {
+                    kind: StackSlotKind::ExplicitSlot,
+                    size: 4,
+                    align_shift: 0,
+                });
+                let e = self.compile_expression(expression);
+                self.builder.ins().stack_store(e, slot, 0);
+
+                self.builder.ins().stack_addr(ADDR_TYPE, slot, 0)
+            }
+            UnaryOperator::Indirection => {
+                let e = self.compile_expression(expression);
+                self.builder.ins().load(ADDR_TYPE, MemFlags::new(), e, 0)
+            }
+            UnaryOperator::Plus => todo!(),
+            UnaryOperator::Minus => todo!(),
+            UnaryOperator::Complement => todo!(),
+            UnaryOperator::Negate => todo!(),
         }
     }
     pub fn compile_constant(&mut self, constant: &lang_c::ast::Constant) -> Value {

@@ -87,13 +87,18 @@ pub enum Expression {
     Identifier(Identifier),
     BinOp(Box<Self>, ast::BinaryOperator, Box<Self>),
     UnaryOp(ast::UnaryOperator, Box<Self>),
-    Constant(ast::Constant)
+    Constant(ast::Constant),
+    Member(Box<Self>, ast::Identifier, MemberAccessKind)
 }
 #[derive(Debug, Clone)]
 pub enum Label {
     Idenitfier(Identifier),
     Case(Expression),
     Default
+}
+#[derive(Debug, Clone)]
+pub enum MemberAccessKind {
+    Direct, Indirect
 }
 impl Ty {
     pub fn new(data_type: DataType) -> Self {

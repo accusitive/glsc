@@ -443,7 +443,17 @@ impl HirLower {
             ast::Expression::Constant(constant) => hir::Expression::Constant(constant.node.clone()),
             ast::Expression::StringLiteral(node) => todo!(),
             ast::Expression::GenericSelection(node) => todo!(),
-            ast::Expression::Member(node) => todo!(),
+            ast::Expression::Member(node) => {
+                let expression = self.lower_expression(&node.node.expression.node);
+
+                let access_kind = match node.node.operator.node {
+                    ast::MemberOperator::Direct => hir::MemberAccessKind::Direct,
+                    ast::MemberOperator::Indirect => hir::MemberAccessKind::Indirect,
+                };
+
+                hir::Expression::Member(Box::new(expression), node.node.identifier.node.clone(), access_kind)
+
+            },
             ast::Expression::Call(node) => todo!(),
             ast::Expression::CompoundLiteral(node) => todo!(),
             ast::Expression::SizeOfTy(node) => todo!(),
