@@ -283,7 +283,7 @@ impl<'a, M: Module> FunctionTranslator<'a, M> {
                 self.compile_expression(expression);
             }
             glsc_mir::Statement::LabeledStatement(label, statement) => {
-                let (existed, label_block) =self.get_or_create_label(label);
+                let (existed, label_block) = self.get_or_create_label(label);
                 // If the label didn't exist, jump to it, otherwise it might never be xecuted
                 // If the label did exist, this was done previously
                 if !existed {
@@ -300,37 +300,68 @@ impl<'a, M: Module> FunctionTranslator<'a, M> {
                         let block = self.builder.create_block();
                         self.labels.push((mir::Label::Internal(*label), block));
                         block
-                    },
+                    }
                 };
                 self.builder.ins().jump(block, &[]);
             }
             glsc_mir::Statement::Empty => {
                 self.builder.ins().nop();
-            },
+            }
             glsc_mir::Statement::If(condition, then, elze) => {
-                dbg!(&condition, then, elze);
                 let cond = self.compile_expression(condition);
                 let then_block = self.builder.create_block();
                 let elze_block = self.builder.create_block();
 
-                self.builder
-                    .ins()
-                    .brif(cond, then_block, &[], elze_block, &[]);
+                let continue_block = self.builder.create_block();
+
+                self.builder.ins().brif(
+                    cond,
+                    then_block,
+                    &[],
+                    if elze.is_some() {
+                        elze_block
+                    } else {
+                        continue_block
+                    },
+                    &[],
+                );
 
                 self.builder.switch_to_block(then_block);
                 self.compile_statement(&then);
+
+                if !self.has_terminator(then){
+                    self.builder.ins().jump(continue_block, &[]);
+                }
+
                 if let Some(elze) = elze.deref() {
                     self.builder.switch_to_block(elze_block);
                     self.compile_statement(&elze);
+
+                    if !self.has_terminator(elze) {
+                        self.builder.ins().jump(continue_block, &[]);
+                    }
                 }
+
+                self.builder.switch_to_block(continue_block);
             }
         }
     }
+    fn has_terminator(&mut self, statement: &mir::Statement) -> bool {
+        match statement {
+            glsc_mir::Statement::Compound(vec) => vec
+                .last()
+                .map(|last| self.has_terminator(last))
+                .unwrap_or(false),
+            glsc_mir::Statement::Return(_) => true,
+            _ => false,
+        }
+    }
+
     // returns a bool of whether the block already existed
     fn get_or_create_label(&mut self, label: &mir::Label) -> (bool, Block) {
         let l = match label {
             glsc_mir::Label::Internal(x) => x,
-            _ => todo!()
+            _ => todo!(),
         };
         let block = match self.get_label_by_internal_id(l) {
             Some(block) => (true, block),
@@ -338,11 +369,12 @@ impl<'a, M: Module> FunctionTranslator<'a, M> {
                 let block = self.builder.create_block();
                 self.labels.push((mir::Label::Internal(*l), block));
                 (false, block)
-            },
+            }
         };
 
         block
     }
+    // TODO: change this to work on mir::Label
     fn get_label_by_internal_id(&self, internal_id: &u64) -> Option<Block> {
         for (label, block) in &self.labels {
             if let mir::Label::Internal(label_id) = label {
