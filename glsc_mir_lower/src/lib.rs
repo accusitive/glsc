@@ -1,29 +1,26 @@
-use glsc_hir::{self as hir};
+use glsc_hir::{self as hir, MemberAccessKind};
 use glsc_mir::{self as mir};
-use lang_c::ast;
+use lang_c::ast::{self, Integer, IntegerSuffix};
 use std::collections::HashMap;
 
 #[derive(Debug)]
 pub struct Scope {
     pub typedefs: HashMap<mir::Identifier, mir::Ty>,
-    // pub functions: Vec<mir::FunctionDefinition>,
-    // pub variables: HashMap<mir::Identifier, (mir::Ty, Option<mir::Expression>)>,
-    // pub external_declaration: HashMap<mir::Identifier, mir::Declaration>
+    // Track the variable name and Ty, dont't care about the value for now
+    pub variables: HashMap<mir::Identifier, mir::Ty>,
 }
 
 impl Scope {
     pub fn new() -> Self {
         Self {
             typedefs: HashMap::new(),
-            // functions: Vec::new(),
-            // variables: HashMap::new(),
-            // external_declaration: HashMap::new()
+            variables: HashMap::new(),
         }
     }
 }
 #[derive(Debug)]
 pub struct MirLower {
-    pub scopes: Vec<Scope>,
+    pub scope_stack: Vec<Scope>,
     /// technically maybe this should be called external declaration
     pub global_declarations: Vec<mir::ExternalDeclaration>,
     internal_label: u64,
@@ -33,19 +30,35 @@ impl MirLower {
     pub fn new() -> Self {
         Self {
             // Global scope
-            scopes: vec![Scope::new()],
+            scope_stack: vec![Scope::new()],
             internal_label: 0,
             global_declarations: vec![],
         }
     }
     pub fn get_current_scope(&mut self) -> &mut Scope {
-        self.scopes.last_mut().unwrap()
+        self.scope_stack.last_mut().unwrap()
+    }
+    pub fn resolve_var_ty(&mut self, identifier: &mir::Identifier) -> Option<&glsc_mir::Ty> {
+        for scope in &*self.scope_stack {
+            if let Some(var) = scope.variables.get(identifier) {
+                return Some(var);
+            }
+        }
+        return None;
+    }
+    pub fn resolve_typedef(&mut self, identifier: &mir::Identifier) -> Option<&glsc_mir::Ty> {
+        for scope in &*self.scope_stack {
+            if let Some(var) = scope.typedefs.get(identifier) {
+                return Some(var);
+            }
+        }
+        return None;
     }
     pub fn push_scope(&mut self) {
-        self.scopes.push(Scope::new());
+        self.scope_stack.push(Scope::new());
     }
     pub fn pop_scope(&mut self) {
-        self.scopes.pop();
+        self.scope_stack.pop();
     }
 }
 
@@ -80,6 +93,10 @@ impl MirLower {
         if let Some(ast::StorageClassSpecifier::Typedef) = declaration.ty.storage_class {
             self.get_current_scope()
                 .typedefs
+                .insert(mir_declaration.name, mir_declaration.ty);
+        } else {
+            self.get_current_scope()
+                .variables
                 .insert(mir_declaration.name, mir_declaration.ty);
         }
     }
@@ -155,10 +172,19 @@ impl MirLower {
                     .collect::<Vec<_>>(),
             },
             // TODO: add padding to each field
-            hir::DataType::Struct { name, fields } => mir::Ty::Struct {
-                name: name.as_ref().map(|n| n.into()),
-                fields: vec![],
-            },
+            hir::DataType::Struct { name, fields } => {
+                let fields = fields
+                    .iter()
+                    .map(|field| mir::StructField {
+                        name: field.name.clone().into(),
+                        ty: self.lower_ty(&field.ty),
+                    })
+                    .collect();
+                mir::Ty::Struct {
+                    name: name.as_ref().map(|n| n.into()),
+                    fields,
+                }
+            }
         }
     }
     pub fn lower_statement(&mut self, statement: &hir::Statement) -> Option<mir::Statement> {
@@ -255,31 +281,127 @@ impl MirLower {
             hir::Expression::Identifier(identifier) => {
                 mir::Expression::Identifier(identifier.into())
             }
-            hir::Expression::BinOp(lhs, binary_operator, rhs) => {
-                match binary_operator {
-                    _ => {
-                        mir::Expression::BinOp(
-                            Box::new(self.lower_expression(&lhs)),
-                            binary_operator.clone(),
-                            Box::new(self.lower_expression(&rhs)),
-                        )
-                    }
-                }
-                
-            }
+            hir::Expression::BinOp(lhs, binary_operator, rhs) => match binary_operator {
+                _ => mir::Expression::BinOp(
+                    Box::new(self.lower_expression(&lhs)),
+                    binary_operator.clone(),
+                    Box::new(self.lower_expression(&rhs)),
+                ),
+            },
             hir::Expression::UnaryOp(unary_operator, expression) => mir::Expression::UnaryOp(
                 unary_operator.clone(),
                 Box::new(self.lower_expression(&expression)),
             ),
             hir::Expression::Constant(constant) => mir::Expression::Constant(constant.clone()),
-            hir::Expression::Member(expression, identifier, member_access_kind) => todo!(),
+            hir::Expression::Member(expression, identifier, member_access_kind) => {
+                assert!(matches!(member_access_kind, MemberAccessKind::Direct));
+                let mir_expression = self.lower_expression(expression);
+                let expression_ty = self.get_expression_type(&mir_expression);
+
+                let (offset, field_ty) = self
+                    .get_struct_field_offset(&expression_ty, &identifier.into())
+                    .unwrap();
+
+                let address =
+                    mir::Expression::UnaryOp(ast::UnaryOperator::Address, Box::new(mir_expression));
+                let plus_offset = mir::Expression::BinOp(
+                    Box::new(address),
+                    ast::BinaryOperator::Plus,
+                    Box::new(mir::Expression::Constant(ast::Constant::Integer(Integer {
+                        base: ast::IntegerBase::Decimal,
+                        number: format!("{}", offset).into(),
+                        suffix: IntegerSuffix {
+                            imaginary: false,
+                            size: ast::IntegerSize::Long,
+                            unsigned: false,
+                        },
+                    }))),
+                );
+                let deref = mir::Expression::UnaryOp(
+                    ast::UnaryOperator::Indirection,
+                    Box::new(mir::Expression::Cast(Box::new(plus_offset), mir::Ty::Pointer(Box::new(field_ty)))),
+                );
+                deref
+            }
             hir::Expression::Call(expression, arguments) => {
                 let expression = self.lower_expression(expression);
-                let args = arguments.iter().map(|arg| self.lower_expression(&arg)).collect::<Vec<_>>();
+                let args = arguments
+                    .iter()
+                    .map(|arg| self.lower_expression(&arg))
+                    .collect::<Vec<_>>();
 
                 mir::Expression::Call(Box::new(expression), args)
+            }
+            hir::Expression::StringLiteral(string) => {
+                mir::Expression::StringLiteral(string.clone())
+            }
+        }
+    }
+    fn get_struct_field_offset(
+        &mut self,
+        struct_type: &mir::Ty,
+        field_name: &mir::Identifier,
+    ) -> Option<(u32, mir::Ty)> {
+        match struct_type {
+            glsc_mir::Ty::Struct {
+                name: _name,
+                fields,
+            } => {
+                let mut offset = 0;
+
+                for field in fields {
+                    if field.name == *field_name {
+                        return Some((offset, field.ty.clone()));
+                    } else {
+                        offset += field.ty.get_size_on_stack();
+                        continue;
+                    }
+                }
+                return None;
+            }
+            _ => unreachable!(),
+        }
+    }
+    fn get_expression_type(&mut self, expression: &mir::Expression) -> mir::Ty {
+        match expression {
+            glsc_mir::Expression::Identifier(identifier) => {
+                let ty = self.resolve_var_ty(identifier).unwrap();
+                ty.clone()
+            }
+            glsc_mir::Expression::BinOp(expression, binary_operator, expression1) => {
+                let lty = self.get_expression_type(expression);
+                let rty = self.get_expression_type(expression);
+
+                if lty != rty {
+                    panic!("add between different types is not supported");
+                } else {
+                    lty.clone()
+                }
+            }
+            glsc_mir::Expression::UnaryOp(unary_operator, expression) => match unary_operator {
+                ast::UnaryOperator::Address => {
+                    mir::Ty::Pointer(Box::new(self.get_expression_type(expression)))
+                }
+                ast::UnaryOperator::Indirection => {
+                    let full_ty = self.get_expression_type(expression);
+                    match full_ty {
+                        glsc_mir::Ty::Pointer(ty) => *ty,
+                        _ => panic!("Indirection on non pointer ty {:?}", full_ty),
+                    }
+                }
+                _ => self.get_expression_type(&expression),
             },
-            hir::Expression::StringLiteral(string) => mir::Expression::StringLiteral(string.clone()),
+            glsc_mir::Expression::Constant(constant) => mir::Ty::Int,
+            glsc_mir::Expression::Call(expression, vec) => unimplemented!(),
+            glsc_mir::Expression::StringLiteral(_) => mir::Ty::Pointer(Box::new(mir::Ty::Char)),
+            glsc_mir::Expression::Cast(expression, ty) => {
+                match ty {
+                    glsc_mir::Ty::Pointer(pointer_ty) => {
+                        ty.clone()
+                    },
+                    _ => todo!("cast between {:?} for expr {:?}", ty, expression)
+                }
+            },
             
         }
     }

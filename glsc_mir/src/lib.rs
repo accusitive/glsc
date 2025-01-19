@@ -99,5 +99,25 @@ pub enum Expression {
     UnaryOp(ast::UnaryOperator, Box<Self>),
     Constant(ast::Constant),
     Call(Box<Self>, Vec<Self>),
-    StringLiteral(String)
+    StringLiteral(String),
+    Cast(Box<Self>, Ty)
+}
+
+impl Ty {
+    pub fn get_size_on_stack(&self) -> u32 {
+        match self {
+            Ty::Short => 2,
+            Ty::Int => 4,
+            Ty::Float => 4,
+            Ty::Double => 8,
+            Ty::Char => 1,
+            Ty::Long => 8, // Assuming 64-bit system
+            Ty::LongLong => 8,
+            Ty::Pointer(_) => 8,
+            Ty::Struct { name, fields } => {
+                fields.iter().map(|field| Self::get_size_on_stack(&field.ty)).sum()
+            }
+            _ => unimplemented!("type {:?} is not implemented", self),
+        }
+    }
 }

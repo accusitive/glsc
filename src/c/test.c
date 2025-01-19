@@ -1,12 +1,19 @@
-extern int printf(char* fmt, int *num, int *num2, int num);
+extern int printf(char *fmt, int num1, int num2);
 int add(int lhs, int rhs)
 {
-    // stack slot containgin 5
-    int a = 5;
-    // stack slot containing address of a
-    int *b = &a;
-    // store 10 to ??
-    *b = 10;
-    printf("abc   %p   %p   %i", &a, &a, a);
-    return a;
+    struct s
+    {
+        int a;
+        int b;
+    } instance;
+
+    instance.a = 5;
+    instance.b = 100;
+
+    int *instancea = &instance.a;
+    *instancea = 50;
+
+    printf("test: %i %i", instance.a, instance.b);
+    return instance.a + instance.b;
 }
+

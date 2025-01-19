@@ -4,7 +4,7 @@ use ahash::RandomState;
 use cranelift::codegen::Context;
 use cranelift::prelude::*;
 use cranelift_codegen::{
-    ir::{function, ArgumentExtension, ArgumentPurpose, Inst, StackSlot, UserFuncName},
+    ir::{function, ArgumentExtension, ArgumentPurpose, Inst, StackSlot, UserFuncName, ValueLabel},
     verify_function,
 };
 use cranelift_module::{DataDescription, FuncId, Linkage, Module};
@@ -251,7 +251,7 @@ impl<'a, M: Module> FunctionTranslator<'a, M> {
             glsc_mir::Statement::Declaration(declaration) => {
                 let slot = self.builder.create_sized_stack_slot(StackSlotData {
                     kind: StackSlotKind::ExplicitSlot,
-                    size: Self::get_size_on_stack(&declaration.ty),
+                    size: declaration.ty.get_size_on_stack(),
                     align_shift: 4,
                 });
                 self.scope_stack.last_mut().unwrap().variables.insert(
@@ -265,7 +265,7 @@ impl<'a, M: Module> FunctionTranslator<'a, M> {
                     let compiled_init = self.compile_expression(init);
 
                     if self.get_expression_type(init) != declaration.ty {
-                        panic!("Declaration type not the same as expression type");
+                        // panic!("Declaration type not the same as expression type");
                     }
                     let slot_addr = self.builder.ins().stack_addr(ADDR_TYPE, slot, 0);
 
@@ -285,19 +285,7 @@ impl<'a, M: Module> FunctionTranslator<'a, M> {
             glsc_mir::Statement::If(expression, statement, statement1) => todo!(),
         }
     }
-    fn get_size_on_stack(ty: &mir::Ty) -> u32 {
-        match ty {
-            glsc_mir::Ty::Short => 2,
-            glsc_mir::Ty::Int => 4,
-            glsc_mir::Ty::Float => 4,
-            glsc_mir::Ty::Double => 8,
-            glsc_mir::Ty::Char => 1,
-            glsc_mir::Ty::Long => 8, // Assuming 64-bit system
-            glsc_mir::Ty::LongLong => 8,
-            glsc_mir::Ty::Pointer(_) => 8,
-            _ => unimplemented!("type {:?} is not implemented", ty),
-        }
-    }
+
     pub fn compile_expression(&mut self, expression: &mir::Expression) -> Value {
         match expression {
             glsc_mir::Expression::Identifier(identifier) => {
@@ -350,6 +338,8 @@ impl<'a, M: Module> FunctionTranslator<'a, M> {
 
                 self.builder.ins().global_value(ADDR_TYPE, gv)
             }
+            glsc_mir::Expression::Cast(expression, ty) => self.compile_expression(expression),
+            
         }
     }
     pub fn compile_call(
@@ -413,16 +403,38 @@ impl<'a, M: Module> FunctionTranslator<'a, M> {
                 }
                 UnaryOperator::Indirection => {
                     let full_ty = self.get_expression_type(expression);
+                    // dbg!(&"indirection", &full_ty);
+                    // panic!();
                     match full_ty {
                         glsc_mir::Ty::Pointer(ty) => *ty,
                         _ => panic!("Indirection on non pointer ty"),
                     }
                 }
-                _ => self.get_expression_type(&expression),
+                _ => unimplemented!(), // _ => self.get_expression_type(&expression),
             },
-            glsc_mir::Expression::Constant(constant) => mir::Ty::Int,
+            glsc_mir::Expression::Constant(constant_inner) => match constant_inner {
+                lang_c::ast::Constant::Integer(integer) => {
+                    // dbg!(&integer);
+                    // panic!();
+                    match integer.suffix.size {
+                        lang_c::ast::IntegerSize::Int => mir::Ty::Int,
+                        lang_c::ast::IntegerSize::Long => mir::Ty::Long,
+                        lang_c::ast::IntegerSize::LongLong => todo!(),
+                    }
+                }
+                lang_c::ast::Constant::Float(float) => todo!(),
+                lang_c::ast::Constant::Character(_) => todo!(),
+            },
             glsc_mir::Expression::Call(expression, vec) => unimplemented!(),
             glsc_mir::Expression::StringLiteral(_) => mir::Ty::Pointer(Box::new(mir::Ty::Char)),
+            glsc_mir::Expression::Cast(expression, ty) => {
+                match ty {
+                    glsc_mir::Ty::Pointer(pointer_ty) => {
+                        ty.clone()
+                    },
+                    _ => todo!("implement cast between {:?} for expr {:?}", ty, expression)
+                }
+            },
         }
     }
     fn find_variable_in_scope_stack(&self, i: &Identifier) -> Option<&Variable> {
@@ -477,7 +489,8 @@ impl<'a, M: Module> FunctionTranslator<'a, M> {
             | glsc_mir::Expression::UnaryOp(UnaryOperator::Address, inner_expression) => {
                 self.compile_expression(inner_expression)
             }
-            glsc_mir::Expression::StringLiteral(..)
+            glsc_mir::Expression::Cast(..)
+            | glsc_mir::Expression::StringLiteral(..)
             | glsc_mir::Expression::Call(..)
             | glsc_mir::Expression::BinOp(..)
             | glsc_mir::Expression::UnaryOp(..)
@@ -500,9 +513,15 @@ impl<'a, M: Module> FunctionTranslator<'a, M> {
             UnaryOperator::Indirection => {
                 let e = self.compile_expression(expression);
                 let expression_type = self.get_expression_type(expression);
+                let dereferenced = match &expression_type {
+                    glsc_mir::Ty::Pointer(ty) => ty,
+                    _ => unimplemented!()
+                };
+
+
                 self.builder
                     .ins()
-                    .load(Backend::cliff_ty(&expression_type), MemFlags::new(), e, 0)
+                    .load(Backend::cliff_ty(&dereferenced), MemFlags::new(), e, 0)
             }
             UnaryOperator::Plus => todo!(),
             UnaryOperator::Minus => todo!(),
@@ -512,10 +531,15 @@ impl<'a, M: Module> FunctionTranslator<'a, M> {
     }
     pub fn compile_constant(&mut self, constant: &lang_c::ast::Constant) -> Value {
         match constant {
-            lang_c::ast::Constant::Integer(integer) => self.builder.ins().iconst(
-                types::I32,
-                i64::from_str_radix(&integer.number, Self::base_to_radix(&integer.base)).unwrap(),
-            ),
+            lang_c::ast::Constant::Integer(integer) => {
+                let constant_ty =
+                    self.get_expression_type(&mir::Expression::Constant(constant.clone()));
+                self.builder.ins().iconst(
+                    Backend::cliff_ty(&constant_ty),
+                    i64::from_str_radix(&integer.number, Self::base_to_radix(&integer.base))
+                        .unwrap(),
+                )
+            }
             lang_c::ast::Constant::Float(float) => todo!(),
             lang_c::ast::Constant::Character(_) => todo!(),
         }
