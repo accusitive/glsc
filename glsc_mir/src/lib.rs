@@ -48,26 +48,32 @@ pub struct FunctionParameter {
     pub name: Option<Identifier>,
     pub ty: Ty,
 }
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct FunctionDefinition {
     pub name: Identifier,
     pub parameters: Vec<FunctionParameter>,
     pub return_type: Ty,
     pub body: Statement,
 }
-#[derive(Debug)]
+#[derive(Debug, Clone)]
+pub struct FunctionDesignation {
+    pub name: Identifier,
+    pub parameters: Vec<FunctionParameter>,
+    pub return_type: Ty,
+}
+#[derive(Debug, Clone)]
 pub enum ExternalDeclaration {
     FunctionDefinition(FunctionDefinition),
     Declaration(Declaration),
 }
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Declaration {
     pub ty: Ty,
     pub name: Identifier,
     pub init: Option<Expression>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Statement {
     Compound(Vec<Self>),
     Return(Option<Expression>),
@@ -79,17 +85,19 @@ pub enum Statement {
     Empty,
     If(Expression, Box<Statement>, Box<Option<Statement>>),
 }
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Label {
     Idenitfier(Identifier),
     Case(Expression),
     Internal(u64),
     Default,
 }
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Expression {
     Identifier(Identifier),
     BinOp(Box<Self>, ast::BinaryOperator, Box<Self>),
     UnaryOp(ast::UnaryOperator, Box<Self>),
     Constant(ast::Constant),
+    Call(Box<Self>, Vec<Self>),
+    StringLiteral(String)
 }

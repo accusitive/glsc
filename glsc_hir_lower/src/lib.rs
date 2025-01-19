@@ -441,7 +441,13 @@ impl HirLower {
                 hir::Expression::Identifier(identifier.node.clone())
             }
             ast::Expression::Constant(constant) => hir::Expression::Constant(constant.node.clone()),
-            ast::Expression::StringLiteral(node) => todo!(),
+            ast::Expression::StringLiteral(node) => {
+                let mut concatenated = String::new();
+                for string in &node.node {
+                    concatenated.push_str(string);
+                }
+                hir::Expression::StringLiteral(concatenated)
+            },
             ast::Expression::GenericSelection(node) => todo!(),
             ast::Expression::Member(node) => {
                 let expression = self.lower_expression(&node.node.expression.node);
@@ -454,7 +460,13 @@ impl HirLower {
                 hir::Expression::Member(Box::new(expression), node.node.identifier.node.clone(), access_kind)
 
             },
-            ast::Expression::Call(node) => todo!(),
+            ast::Expression::Call(node) => {
+                let callee = self.lower_expression(&node.node.callee.node);
+
+                let args = node.node.arguments.iter().map(|arg| self.lower_expression(&arg.node)).collect::<Vec<_>>();
+
+                hir::Expression::Call(Box::new(callee), args)
+            },
             ast::Expression::CompoundLiteral(node) => todo!(),
             ast::Expression::SizeOfTy(node) => todo!(),
             ast::Expression::SizeOfVal(node) => todo!(),

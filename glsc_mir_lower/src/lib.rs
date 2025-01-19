@@ -273,6 +273,14 @@ impl MirLower {
             ),
             hir::Expression::Constant(constant) => mir::Expression::Constant(constant.clone()),
             hir::Expression::Member(expression, identifier, member_access_kind) => todo!(),
+            hir::Expression::Call(expression, arguments) => {
+                let expression = self.lower_expression(expression);
+                let args = arguments.iter().map(|arg| self.lower_expression(&arg)).collect::<Vec<_>>();
+
+                mir::Expression::Call(Box::new(expression), args)
+            },
+            hir::Expression::StringLiteral(string) => mir::Expression::StringLiteral(string.clone()),
+            
         }
     }
 }

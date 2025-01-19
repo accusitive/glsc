@@ -88,7 +88,9 @@ pub enum Expression {
     BinOp(Box<Self>, ast::BinaryOperator, Box<Self>),
     UnaryOp(ast::UnaryOperator, Box<Self>),
     Constant(ast::Constant),
-    Member(Box<Self>, ast::Identifier, MemberAccessKind)
+    Member(Box<Self>, ast::Identifier, MemberAccessKind),
+    Call(Box<Self>, Vec<Self>),
+    StringLiteral(String)
 }
 #[derive(Debug, Clone)]
 pub enum Label {
